@@ -1,0 +1,167 @@
+name: Deploy
+
+# Auto-deploys TokenPap to production (https://api.tokenpap.com) on every push
+# to master, or on demand from the Actions tab.
+#
+# The runner checks out the code with its own automatic GitHub auth and pushes
+# files to the server over SCP, so the server never talks to GitHub.
+#
+#   frontend - built HERE on the runner (the 1.7 GB server is too small for a
+#              Vite build), uploaded as dist, swapped in atomically.
+#   backend  - source uploaded, then installed/built/migrated ON the server
+#              (Prisma's generated client must match the server), restarted
+#              via systemd and health-checked; a failed start rolls back.
+#
+# Server layout:
+#   /var/www/tokenpap-v2/backend    tokenpap-api.service (node dist/server.js, 127.0.0.1:3000)
+#   /var/www/tokenpap-v2/frontend/dist   served by nginx at /
+#   backend/.env and backend/uploads/ live only on the server and are never touched.
+#
+# Required repository secrets:
+#   SSH_HOST          151.236.222.239
+#   SSH_USER          root
+#   SSH_PRIVATE_KEY   private half of the deploy key authorized on the server
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+# Never run two deploys at once; a newer push waits for the current one.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  APP_DIR: /var/www/tokenpap-v2
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      # Catch type errors before anything reaches the server.
+      - name: Typecheck backend
+        working-directory: backend
+        env:
+          # Only so `prisma generate` (npm postinstall) can load prisma.config.ts - never connected to.
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=ci
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          # Same-origin API (nginx proxies /api to the backend); Socket.io on the API host.
+          VITE_API_BASE_URL: /api
+          VITE_SOCKET_URL: https://api.tokenpap.com
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc -b
+          npx vite build --mode production
+          # Guard against a mis-set API base (this once shipped as a Windows path and broke every login).
+          grep -q 'baseURL:"/api"' dist/assets/index-*.js || { echo "::error::API base URL is not /api in the build"; exit 1; }
+
+      # Remove backend source the repo no longer has, so deleted files can't be
+      # compiled back in. The running service only uses dist/, so this is safe.
+      - name: Prepare server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ env.APP_DIR }}/backend
+            rm -rf src prisma scripts
+            rm -rf ${{ env.APP_DIR }}/frontend/dist.incoming
+
+      - name: Upload backend source
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "backend/src,backend/prisma,backend/scripts,backend/package.json,backend/package-lock.json,backend/tsconfig.json,backend/prisma.config.ts,!backend/src/generated"
+          target: ${{ env.APP_DIR }}
+          overwrite: true
+
+      - name: Upload frontend build
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "frontend/dist/*"
+          target: ${{ env.APP_DIR }}/frontend/dist.incoming
+          strip_components: 2
+          overwrite: true
+
+      - name: Install, migrate, build & restart
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          command_timeout: 25m
+          script: |
+            set -e
+            APP=${{ env.APP_DIR }}
+            cd $APP/backend
+
+            echo "--- backend: install ---"
+            npm ci --no-audit --no-fund
+
+            echo "--- backend: migrate ---"
+            # prisma.config.ts uses DIRECT_URL (session connection), so this
+            # works against Supabase - unlike `db push` over the pgbouncer pooler.
+            npx prisma migrate deploy
+
+            echo "--- backend: build ---"
+            rm -rf dist.prev && { [ -d dist ] && cp -a dist dist.prev || true; }
+            NODE_OPTIONS=--max-old-space-size=900 npm run build
+            chown -R tokenpap:tokenpap $APP/backend
+
+            echo "--- restart ---"
+            systemctl restart tokenpap-api
+            ok=""
+            for i in $(seq 1 20); do
+              if curl -fsS -m 3 http://127.0.0.1:3000/ >/dev/null 2>&1; then ok=1; break; fi
+              sleep 2
+            done
+            if [ -z "$ok" ]; then
+              echo "::error::API did not come back after restart - rolling back to the previous build"
+              journalctl -u tokenpap-api -n 40 --no-pager || true
+              if [ -d dist.prev ]; then
+                rm -rf dist && mv dist.prev dist && chown -R tokenpap:tokenpap dist
+                systemctl restart tokenpap-api
+              fi
+              exit 1
+            fi
+            echo "API healthy"
+
+            echo "--- frontend: swap in ---"
+            cd $APP/frontend
+            test -f dist.incoming/index.html
+            chown -R nginx:nginx dist.incoming
+            restorecon -R dist.incoming 2>/dev/null || true
+            rm -rf dist.prev
+            [ -d dist ] && mv dist dist.prev
+            mv dist.incoming dist
+
+            echo "Deploy complete: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
