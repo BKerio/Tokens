@@ -1903,3 +1903,7 @@ h1, h2 { font-family: var(--font-display); }
 .swal-signout-confirm.swal-cf-confirm:disabled { opacity: .4; cursor: not-allowed; }
 .fs-meter.locked { opacity: .55; cursor: not-allowed; background: var(--surface-2); }
 .fs-meter em.vendor { color: var(--muted); }
+
+/* Buy tokens: NCBA paybill account hint */
+.paybill-hint { display: flex; gap: 12px; padding: 13px 14px; border-radius: var(--radius); border: 1px dashed var(--border-strong); background: var(--surface-2); }
+.paybill-hint-ico { width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px; display: grid; place-items: center; background: var(--green-light); color: var(--green); }

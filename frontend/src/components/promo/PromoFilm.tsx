@@ -8,7 +8,7 @@ import { LogoMark, Wordmark } from '@/components/brand/Logo';
 /**
  * The hero iPhone film: buying a token the way most customers actually do it.
  * Home screen (opens in edit mode and adds the TokenPap widget) → SIM Toolkit → M-PESA → Lipa na M-PESA → Pay Bill → business
- * no. (NCBA paybill) → account no. (the meter number) → amount → PIN →
+ * no. (NCBA paybill) → account no. (vendor till#meter number) → amount → PIN →
  * confirm, then the M-PESA receipt and the token SMS drop in as notifications.
  *
  * Drawn in code from one timeline (seconds); every frame is a pure function
@@ -22,6 +22,8 @@ const H = 682;
 /** NCBA paybill customers pay into (backend NCBA_PAYBILL_SHORTCODE). */
 export const PAYBILL = '880100';
 const METER = '47500162848';
+/** NCBA only accepts "<vendor till>#<meter no.>" - a bare meter number bounces as an invalid account. */
+const ACCOUNT = `218262#${METER}`;
 const AMOUNT = '500';
 const TOKEN = '45219087331266041180';
 const TOKEN_DASHED = TOKEN.match(/.{1,4}/g)!.join('-');
@@ -301,7 +303,7 @@ function StkList({ lt, title, back, header, items, tap }: { lt: number; title: s
 const ALERT_TOP = 236;
 const ALERT_H = 168;
 
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'];
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '#', '0', 'del'];
 const KEY_LETTERS: Record<string, string> = { 2: 'ABC', 3: 'DEF', 4: 'GHI', 5: 'JKL', 6: 'MNO', 7: 'PQRS', 8: 'TUV', 9: 'WXYZ' };
 
 /** An STK input prompt: field + numeric keypad, typed one key at a time, then Send. */
@@ -416,7 +418,7 @@ const STORY: Chapter[] = [
   },
   {
     start: 10.25, end: 13.25, label: 'account no', enter: push,
-    render: (lt) => <StkInput lt={lt} title="Pay Bill" back="Back" prompt="Enter account no. (your meter number)" value={METER} typeAt={0.5} sendAt={2.4} />,
+    render: (lt) => <StkInput lt={lt} title="Pay Bill" back="Back" prompt="Enter account no. (till#meter no.)" value={ACCOUNT} typeAt={0.5} sendAt={2.4} />,
   },
   {
     start: 12.85, end: 14.95, label: 'amount', enter: push,
@@ -442,7 +444,7 @@ const STORY: Chapter[] = [
             {sending ? (
               <p className="pf-sending"><span className="pf-spin" /> Sending request…</p>
             ) : (
-              <p>Pay Ksh{AMOUNT}.00 to <b>NCBA BANK KENYA PLC</b> for account <b>{METER}</b>?</p>
+              <p>Pay Ksh{AMOUNT}.00 to <b>NCBA BANK KENYA PLC</b> for account <b>{ACCOUNT}</b>?</p>
             )}
             {!sending && (
               <div className="pf-alert-btns">
@@ -469,7 +471,7 @@ const STORY: Chapter[] = [
         <Banner
           y={bannerY(lt, 0.7, 2.35)}
           sender="MPESA"
-          body={<>QJK7XB2LMN Confirmed. Ksh{AMOUNT}.00 sent to NCBA BANK KENYA PLC for account {METER} on 16/10/26 at 9:41 AM.</>}
+          body={<>QJK7XB2LMN Confirmed. Ksh{AMOUNT}.00 sent to NCBA BANK KENYA PLC for account {ACCOUNT} on 16/10/26 at 9:41 AM.</>}
         />
         <Banner
           y={bannerY(lt, 2.75, 4.25)}
@@ -502,7 +504,7 @@ const STORY: Chapter[] = [
         <p className="pf-tagline">
           <Words t={lt} at={1.5} words={['Paybill', PAYBILL, '·', 'Account:']} gap={0.08} />
           <br />
-          <span className="pf-serif pf-blue pf-word" style={{ ...rise(lt, 1.9, 0.5, 14), fontSize: 30 }}>your meter no.</span>
+          <span className="pf-serif pf-blue pf-word" style={{ ...rise(lt, 1.9, 0.5, 14), fontSize: 30 }}>till#meter no.</span>
         </p>
         <span className="pf-cta" style={pop(lt, 2.3, 0.45)}>Buy tokens</span>
         <span className="pf-mono pf-foot" style={rise(lt, 2.5)}>m-pesa · sts · sms</span>

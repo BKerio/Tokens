@@ -83,7 +83,7 @@ const PROMISES = [
   },
   {
     Icon: Smartphone, a: 'Pay your way.', b: 'M-Pesa or paybill.',
-    text: 'Use the M-Pesa prompt on this site, or pay to your vendor’s paybill with your meter number as the account.',
+    text: 'Use the M-Pesa prompt on this site, or pay to NCBA paybill 880100 with your vendor’s till, a #, then your meter number as the account - Buy tokens shows yours.',
   },
   {
     Icon: Home, a: 'Built for landlords.', b: 'Every unit, mapped.',

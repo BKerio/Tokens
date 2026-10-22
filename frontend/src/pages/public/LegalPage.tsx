@@ -65,7 +65,7 @@ const CONTENT: Record<Kind, { eyebrow: string; title: string; sub: string; secti
       {
         heading: 'How do I buy tokens?',
         body: [
-          'Use Buy tokens on this site and pay with M-Pesa, or pay to your vendor\'s paybill using your meter number as the account. Your token is sent by SMS as soon as the payment is confirmed.',
+          'Use Buy tokens on this site and pay with M-Pesa, or pay to NCBA paybill 880100. The paybill account number is your vendor\'s till number, a #, then your meter number (for example 218262#47500162848) - enter your meter on Buy tokens to see yours. A meter number on its own is rejected by the bank. Your token is sent by SMS as soon as the payment is confirmed.',
         ],
       },
       {

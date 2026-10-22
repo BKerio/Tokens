@@ -1,14 +1,67 @@
-import { useState, type FormEvent } from 'react';
-import { CheckCircle2, CircleAlert, Smartphone } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { stkPush, waitForPayment } from '@/api/payments';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Check, CheckCircle2, CircleAlert, Copy, Landmark, Smartphone } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getPaybillAccount, stkPush, waitForPayment } from '@/api/payments';
 import { errorMessage } from '@/api/client';
-import { fmtKes } from '@/lib/format';
+import { copyText, fmtKes } from '@/lib/format';
 import AppLoader from '@/components/shared/AppLoader';
 import TokenList from '@/components/public/TokenList';
 import type { PaymentStatusResult } from '@/types/api';
 
 type Phase = 'form' | 'waiting' | 'done';
+
+/**
+ * "Or pay via the NCBA paybill" with the exact account no. for this meter.
+ * NCBA rejects a bare meter number ("invalid account number"): it needs the
+ * vendor's till, a #, then the meter number.
+ */
+function PaybillHint({ meter }: { meter: string }) {
+  const [debounced, setDebounced] = useState(meter);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(meter), 450);
+    return () => clearTimeout(t);
+  }, [meter]);
+  const valid = /^\d{6,20}$/.test(debounced);
+  const { data, isFetching } = useQuery({
+    queryKey: ['paybill-account', debounced],
+    queryFn: () => getPaybillAccount(debounced),
+    enabled: valid,
+    staleTime: 5 * 60_000,
+  });
+
+  if (!valid || (!data && isFetching)) return null;
+  if (!data) return null;
+
+  return (
+    <div className="paybill-hint" aria-live="polite">
+      <span className="paybill-hint-ico"><Landmark size={16} /></span>
+      <div className="col" style={{ gap: 4, minWidth: 0 }}>
+        <b className="text-sm" style={{ color: 'var(--ink)' }}>Or pay with M-Pesa Paybill</b>
+        {data.account ? (
+          <>
+            <span className="text-sm" style={{ color: 'var(--muted)' }}>Business no. <b className="mono" style={{ color: 'var(--ink)' }}>{data.paybill}</b></span>
+            <span className="text-sm" style={{ color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              Account no. <b className="mono" style={{ color: 'var(--ink)', wordBreak: 'break-all' }}>{data.account}</b>
+              <button
+                type="button"
+                className="btn btn-soft btn-sm"
+                onClick={async () => { if (await copyText(data.account!)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}
+              >
+                {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+              </button>
+            </span>
+            <span className="text-xs" style={{ color: 'var(--muted)' }}>Type the account exactly as shown, including the #. Just the meter number is rejected.</span>
+          </>
+        ) : (
+          <span className="text-sm" style={{ color: 'var(--muted)' }}>
+            {data.found ? 'This meter can’t be paid through the paybill yet - use the M-Pesa prompt above.' : 'We couldn’t find this meter. Check the number.'}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** Each long-poll waits ~25s server-side; give the payer about two and a half minutes in total. */
 const MAX_POLLS = 6;
@@ -159,6 +212,7 @@ function BuyTokensPanel({ defaultMeter = '', defaultPhone = '' }: { defaultMeter
       <button className="btn btn-primary btn-lg" type="submit" disabled={submitting} aria-busy={submitting}>
         {submitting ? <><AppLoader size={16} /> Sending M-Pesa prompt…</> : 'Pay with M-Pesa'}
       </button>
+      <PaybillHint meter={meter.trim()} />
     </form>
   );
 }

@@ -17,6 +17,12 @@ export async function waitForPayment(checkoutRequestId: string): Promise<Payment
   return res.data.data;
 }
 
+/** NCBA paybill instructions for a meter: the account no. NCBA accepts is "<vendor till>#<meter>". */
+export async function getPaybillAccount(meterNumber: string): Promise<{ paybill: string; meterNumber: string; found: boolean; account: string | null }> {
+  const res = await api.get(`/public/tokens/paybill/${encodeURIComponent(meterNumber)}`);
+  return res.data.data;
+}
+
 export async function listPayments(
   params: ListParams & { status?: PaymentStatus; channel?: PaymentChannel; from?: string; to?: string },
 ): Promise<PaginatedResponse<Payment>> {

@@ -71,4 +71,31 @@ export async function publicTokenRoutes(app: FastifyInstance, ctx: AppContext) {
       return { ok: true, data: await service.publicSearch(q) };
     },
   );
+
+  /**
+   * How to pay a meter through the NCBA paybill. NCBA validates the account
+   * no. itself and bounces anything that isn't "<vendor till>#<meter no.>"
+   * ("invalid account number") before we ever hear about it, so customers
+   * must be shown the exact string.
+   */
+  app.get<{ Params: { meterNumber: string } }>(
+    '/paybill/:meterNumber',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (req) => {
+      const meterNumber = req.params.meterNumber.trim();
+      const meter = /^\d{6,20}$/.test(meterNumber)
+        ? await ctx.prisma.meter.findUnique({ where: { meterNumber }, select: { vendor: { select: { accountId: true } } } })
+        : null;
+      const till = meter?.vendor?.accountId?.trim() || null;
+      return {
+        ok: true,
+        data: {
+          paybill: ctx.config.NCBA_PAYBILL_SHORTCODE,
+          meterNumber,
+          found: !!meter,
+          account: till ? `${till}#${meterNumber}` : null,
+        },
+      };
+    },
+  );
 }
