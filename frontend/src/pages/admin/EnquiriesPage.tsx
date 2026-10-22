@@ -92,7 +92,7 @@ function EnquiriesPage() {
             {open.status !== 'ARCHIVED' && <button className="btn btn-ghost btn-sm" onClick={() => setEnquiryStatus.mutate({ id: open.id, s: 'ARCHIVED' })}><Archive size={14} /> Archive</button>}
             {open.status !== 'PENDING' && <button className="btn btn-ghost btn-sm" onClick={() => setEnquiryStatus.mutate({ id: open.id, s: 'PENDING' })}>Move to {humanize('PENDING')}</button>}
             <button className="btn btn-ghost btn-sm" onClick={async () => {
-              if (await confirmDialog({ title: 'Delete enquiry', text: 'This cannot be undone.', confirmLabel: 'Delete', danger: true })) remove.mutate(open.id);
+              if (await confirmDialog({ title: 'Delete this enquiry?', subject: { name: `${open.firstName} ${open.lastName}`, detail: open.email, icon: 'mail' }, removes: ['The message and its details'], irreversible: true, confirmLabel: 'Delete enquiry', danger: true })) remove.mutate(open.id);
             }}><Trash2 size={14} /> Delete</button>
           </div>
         </Drawer>

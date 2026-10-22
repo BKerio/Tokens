@@ -184,7 +184,7 @@ export default function StaffPage() {
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <button className="icon-btn" title="Edit role, access or password" onClick={() => setEditing(s)}><Pencil size={13} /></button>
                         <button className="icon-btn" title={active ? 'Suspend' : 'Restore access'} onClick={() => setStatus.mutate({ id: s.id, status: active ? 'SUSPENDED' : 'ACTIVE' })}>{active ? <Ban size={13} /> : <KeyRound size={13} />}</button>
-                        <button className="icon-btn" title="Revoke" onClick={async () => { if (await confirmDialog({ title: `Revoke ${s.user.name}?`, text: 'They lose access immediately. Their past actions stay in the audit log.', confirmLabel: 'Revoke', danger: true })) revoke.mutate(s.id); }}><UserX size={13} /></button>
+                        <button className="icon-btn" title="Revoke" onClick={async () => { if (await confirmDialog({ title: 'Revoke access?', subject: { name: s.user.name, detail: s.user.email, icon: 'person' }, removes: ['Their sign-in, immediately'], keeps: ['Their past actions in the audit log'], confirmLabel: 'Revoke access', danger: true })) revoke.mutate(s.id); }}><UserX size={13} /></button>
                       </td>
                     </tr>
                   );

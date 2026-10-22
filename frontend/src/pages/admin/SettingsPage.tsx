@@ -72,7 +72,7 @@ function SettingsPage() {
 
   const go = async (next: Tab) => {
     if (next === tab) return;
-    if (dirty && !(await confirmDialog({ title: 'Leave without saving?', text: 'You have unsaved changes in this section.', confirmLabel: 'Discard changes', danger: true }))) return;
+    if (dirty && !(await confirmDialog({ title: 'Leave without saving?', removes: ['Unsaved changes in this section'], confirmLabel: 'Discard changes', cancelLabel: 'Keep editing', danger: true }))) return;
     setDirty(false);
     setParams({ tab: next });
   };

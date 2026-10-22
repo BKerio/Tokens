@@ -178,7 +178,7 @@ function CustomersPage() {
   });
 
   const onDelete = async (c: Customer) => {
-    if (await confirmDialog({ title: 'Delete customer', text: `Delete ${c.name}? Their purchase history is kept.`, confirmLabel: 'Delete', danger: true })) remove.mutate(c.id);
+    if (await confirmDialog({ title: 'Delete this customer?', subject: { name: c.name, detail: c.phone, icon: 'person' }, removes: ['Their profile and phone sign-in'], keeps: ['Their purchase history', 'The meter'], irreversible: true, confirmLabel: 'Delete customer', danger: true })) remove.mutate(c.id);
   };
 
   return (

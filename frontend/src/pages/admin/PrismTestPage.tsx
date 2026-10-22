@@ -149,7 +149,9 @@ function PrismTestPage() {
     if (option === 'CREDIT' && !(Number(amount) > 0)) return notify('warning', 'Enter an amount greater than 0');
     const ok = await confirmDialog({
       title: 'Issue a real test token?',
-      text: `This contacts the live Prism network and issues a real ${option === 'CREDIT' ? 'credit' : 'control'} token for meter ${meterNumber.trim()}. No transaction is recorded and no SMS is sent; the run is audit-logged.`,
+      subject: { name: meterNumber.trim(), detail: option === 'CREDIT' ? `Credit token · KES ${amount}` : `${option.replace(/_/g, ' ').toLowerCase()} token`, icon: 'zap' },
+      text: 'This contacts the live Prism network and issues a real token for this meter.',
+      keeps: ['No transaction is recorded', 'No SMS is sent', 'The run is audit-logged'],
       confirmLabel: 'Run test',
     });
     if (!ok) return;

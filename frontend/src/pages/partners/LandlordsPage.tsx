@@ -179,7 +179,7 @@ function LandlordsPage() {
   });
 
   const onDelete = async (l: Landlord) => {
-    if (await confirmDialog({ title: 'Remove landlord', text: `Remove ${l.fullName}? Their properties and hierarchy will be deleted; meters are kept.`, confirmLabel: 'Remove', danger: true })) {
+    if (await confirmDialog({ title: 'Remove this landlord?', subject: { name: l.fullName, detail: l.user.email, icon: 'person' }, removes: ['Their sign-in', 'Their properties, units and tenants'], keeps: ['Their meters (unassigned)', 'Token sales history'], irreversible: true, typeToConfirm: l.fullName, confirmLabel: 'Remove landlord', danger: true })) {
       remove.mutate(l.id);
     }
   };

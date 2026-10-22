@@ -162,7 +162,7 @@ function UserManagementPage() {
                           <button className="icon-btn" title="Edit" onClick={() => setEditing(o)}><Pencil size={14} /></button>
                           <button className="icon-btn" title={o.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'} onClick={() => toggle.mutate(o)}><Power size={14} /></button>
                           <button className="icon-btn" title="Delete" onClick={async () => {
-                            if (await confirmDialog({ title: 'Delete operator', text: `Delete ${o.name} (${o.email})? This can't be undone.`, confirmLabel: 'Delete', danger: true })) remove.mutate(o.id);
+                            if (await confirmDialog({ title: 'Delete this operator?', subject: { name: o.name, detail: o.email, icon: 'person' }, removes: ['Their sign-in and access'], keeps: ['Their past actions in the audit log'], irreversible: true, confirmLabel: 'Delete operator', danger: true })) remove.mutate(o.id);
                           }}><Trash2 size={14} /></button>
                         </>
                       )}

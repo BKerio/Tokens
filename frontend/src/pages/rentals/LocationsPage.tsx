@@ -118,7 +118,7 @@ export default function LocationsPage() {
                 {manage && (
                   <span className="flex gap-1">
                     <button className="icon-btn" title="Edit" onClick={() => setEditing(l)}><Pencil size={13} /></button>
-                    <button className="icon-btn" title="Remove" onClick={async () => { if (await confirmDialog({ title: `Remove ${l.name}?`, text: 'Its properties stay, just without a location.', confirmLabel: 'Remove', danger: true })) remove.mutate(l.id); }}><Trash2 size={13} /></button>
+                    <button className="icon-btn" title="Remove" onClick={async () => { if (await confirmDialog({ title: 'Remove this location?', subject: { name: l.name, detail: l.county ?? 'Portfolio group', icon: 'pin' }, removes: ['The location group'], keeps: ['Its properties (without a location)'], confirmLabel: 'Remove location', danger: true })) remove.mutate(l.id); }}><Trash2 size={13} /></button>
                   </span>
                 )}
               </div>

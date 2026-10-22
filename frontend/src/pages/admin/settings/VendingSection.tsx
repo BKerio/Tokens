@@ -52,7 +52,10 @@ export default function VendingSection({ onDirtyChange }: { onDirtyChange: (dirt
     const list = changed.map((r) => `${PARAMS[r.key]?.code ?? r.key} = ${r.value}`).join(', ');
     const ok = await confirmDialog({
       title: 'Change the STS defaults?',
-      text: `${list} will be used for every meter that has no value of its own for it (meters with their own STS values keep them). Wrong values make tokens unusable.`,
+      subject: { name: list, detail: 'New vending defaults', icon: 'key' },
+      text: 'Wrong values make tokens unusable.',
+      removes: ['Applies to every meter with no STS value of its own'],
+      keeps: ['Meters with their own STS values keep them'],
       confirmLabel: 'Save defaults',
       danger: true,
     });

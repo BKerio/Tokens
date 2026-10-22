@@ -74,13 +74,13 @@ function VendorsPage() {
   });
 
   const onDelete = async (v: Vendor) => {
-    if (await confirmDialog({ title: 'Delete vendor', text: `Delete ${v.businessName} and their login? Their ${v._count.meters} meter(s) will be unassigned.`, confirmLabel: 'Delete', danger: true })) {
+    if (await confirmDialog({ title: 'Delete this vendor?', subject: { name: v.businessName, detail: `${v._count.meters} meter${v._count.meters === 1 ? '' : 's'}`, icon: 'store' }, removes: ['The vendor and their sign-in'], keeps: [`Their ${v._count.meters} meter${v._count.meters === 1 ? '' : 's'} (unassigned)`, 'Token sales history'], irreversible: true, typeToConfirm: v.businessName, confirmLabel: 'Delete vendor', danger: true })) {
       remove.mutate(v.id);
     }
   };
 
   const onReject = async (v: Vendor) => {
-    if (await confirmDialog({ title: 'Reject registration', text: `Reject ${v.businessName}? They won't be able to sign in.`, confirmLabel: 'Reject', danger: true })) {
+    if (await confirmDialog({ title: 'Reject this application?', subject: { name: v.businessName, detail: 'Pending registration', icon: 'store' }, removes: ['They won’t be able to sign in'], confirmLabel: 'Reject application', danger: true })) {
       approval.mutate({ id: v.id, approve: false });
     }
   };

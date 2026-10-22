@@ -187,7 +187,7 @@ export default function PartnerApisSection({ onDirtyChange }: { onDirtyChange: (
 
   const choose = async (e: PaymentEntity) => {
     if (selected && e.id === selected.id && e.type === selected.type) return;
-    if (dirty && !(await confirmDialog({ title: 'Discard unsaved changes?', text: `Your edits to ${selected?.name} haven't been saved.`, confirmLabel: 'Discard', danger: true }))) return;
+    if (dirty && !(await confirmDialog({ title: 'Discard your changes?', subject: selected ? { name: selected.name, detail: 'Unsaved edits', icon: 'pencil' } : undefined, removes: ['Edits you haven’t saved yet'], confirmLabel: 'Discard changes', cancelLabel: 'Keep editing', danger: true }))) return;
     onFormDirty(false);
     setSelected(e);
     // When the list is stacked above the form (narrow screens), bring the form into view.

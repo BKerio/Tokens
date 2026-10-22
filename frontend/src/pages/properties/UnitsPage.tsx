@@ -475,7 +475,7 @@ function UnitsPage() {
                           {manage && <button className="icon-btn" title="Edit unit" onClick={() => setDialog(u)}><Pencil size={14} /></button>}
                           {manage && !u.activeLease && (
                             <button className="icon-btn" title="Delete unit" onClick={async () => {
-                              if (await confirmDialog({ title: `Delete ${u.name}?`, text: 'The unit is removed from this property and the unit count goes down by one.', confirmLabel: 'Delete', danger: true })) remove.mutate(u.id);
+                              if (await confirmDialog({ title: 'Delete this unit?', subject: { name: u.name, detail: property ? `${property.name} · ${units.length - 1} units after` : undefined, icon: 'door' }, removes: ['The unit and its rent and payment settings'], keeps: u.meterNumber ? [`Meter ${u.meterNumber} (unlinked)`] : undefined, irreversible: true, confirmLabel: 'Delete unit', danger: true })) remove.mutate(u.id);
                             }}><Trash2 size={14} /></button>
                           )}
                         </td>

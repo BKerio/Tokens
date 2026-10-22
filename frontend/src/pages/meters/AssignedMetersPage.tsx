@@ -102,7 +102,7 @@ function AssignedMetersPage() {
   });
 
   const onUnassign = async (m: Meter, v: Vendor) => {
-    if (await confirmDialog({ title: 'Unassign meter', text: `Remove meter ${m.meterNumber} from ${v.businessName}? Its transaction history is kept.`, confirmLabel: 'Unassign', danger: true })) unassign.mutate(m);
+    if (await confirmDialog({ title: 'Unassign this meter?', subject: { name: m.meterNumber, detail: `From ${v.businessName}`, icon: 'link' }, removes: [`${v.businessName} can no longer sell on it`], keeps: ['The meter itself', 'Its transaction history'], confirmLabel: 'Unassign meter', danger: true })) unassign.mutate(m);
   };
 
   return (

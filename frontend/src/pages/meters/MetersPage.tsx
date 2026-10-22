@@ -205,7 +205,7 @@ function MetersPage() {
   });
 
   const onDelete = async (m: Meter) => {
-    if (await confirmDialog({ title: 'Delete meter', text: `Delete meter ${m.meterNumber}? Its transaction history is kept.`, confirmLabel: 'Delete', danger: true })) remove.mutate(m.id);
+    if (await confirmDialog({ title: 'Delete this meter?', subject: { name: m.meterNumber, detail: [m.vendor?.businessName, m.landlord?.fullName].filter(Boolean).join(' · ') || 'Unassigned', icon: 'gauge' }, removes: ['The meter and its links to vendors, landlords and units'], keeps: ['Its transaction history'], irreversible: true, confirmLabel: 'Delete meter', danger: true })) remove.mutate(m.id);
   };
 
   return (

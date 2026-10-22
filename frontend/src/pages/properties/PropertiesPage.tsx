@@ -30,7 +30,7 @@ function PropertiesPage() {
   });
 
   const onDelete = async (p: Property) => {
-    if (await confirmDialog({ title: 'Delete property', text: `Delete ${p.name} with all its units and tenants?`, confirmLabel: 'Delete', danger: true })) remove.mutate(p.id);
+    if (await confirmDialog({ title: 'Delete this property?', subject: { name: p.name, detail: `${p._count?.units ?? p.noOfUnits} unit${(p._count?.units ?? p.noOfUnits) === 1 ? '' : 's'} · ${p.location}`, icon: 'home' }, removes: ['The property', `All ${p._count?.units ?? p.noOfUnits} units and their tenants`], keeps: ['Linked meters (unlinked)'], irreversible: true, typeToConfirm: p.name, confirmLabel: 'Delete property', danger: true })) remove.mutate(p.id);
   };
 
   const region = (p: Property) => [p.ward?.name, p.constituency?.name, p.county?.name].filter(Boolean).join(', ');
