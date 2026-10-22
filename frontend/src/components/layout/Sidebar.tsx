@@ -39,6 +39,7 @@ import {
   Zap,
   type LucideIcon,
   FlaskConical,
+  HandCoins,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { confirmAndSignOut, homePath } from '@/lib/session';
@@ -83,6 +84,7 @@ const menuSections: NavSection[] = [
       { label: 'Transactions', path: '/transactions', Icon: BarChart3, roles: ADMINS },
       { label: 'Sales', path: '/transactions', Icon: BarChart3, roles: [...VENDOR, ...LANDLORD] },
       { label: 'Purchase History', path: '/transactions', Icon: Receipt, roles: CUSTOMER },
+      { label: 'Collections', path: '/collections', Icon: HandCoins, roles: [...ADMINS, ...VENDOR, ...LANDLORD_ORG], perm: 'ledger.view' },
     ],
   },
   {

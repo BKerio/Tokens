@@ -124,6 +124,14 @@ enum PaymentChannel {
   NCBA // NCBA paybill webhook
 }
 
+// How a payment that couldn't be matched automatically was settled during reconciliation.
+enum PaymentResolution {
+  RENT_ALLOCATED // posted to a lease as a rent payment
+  TOKEN_ISSUED // vended to the correct meter by an admin
+  REFUNDED // money returned to the payer
+  WRITTEN_OFF // accepted as unrecoverable / not ours
+}
+
 enum PaymentStatus {
   PENDING // STK push sent, waiting for Safaricom's callback
   CONFIRMED
@@ -209,6 +217,7 @@ model User {
   landlordStaff     LandlordStaff?
   auditLogs         AuditLog[]
   tokenTransactions TokenTransaction[]
+  resolvedPayments  Payment[]          @relation("PaymentResolvedBy")
 
   @@index([role])
   @@index([phone])
@@ -324,6 +333,7 @@ model Meter {
   customers         Customer[]
   unit              PropertyUnit?
   tokenTransactions TokenTransaction[]
+  payments          Payment[]
 
   @@index([vendorId])
   @@index([landlordId])
@@ -539,11 +549,25 @@ model Payment {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  // The meter the payment was for, once known (set when a token is vended).
+  meterId String? @map("meter_id")
+  meter   Meter?  @relation(fields: [meterId], references: [id], onDelete: SetNull)
+
+  // Reconciliation of payments that didn't match automatically.
+  resolution     PaymentResolution?
+  resolutionNote String?            @map("resolution_note")
+  resolvedAt     DateTime?          @map("resolved_at")
+  resolvedById   String?            @map("resolved_by_id")
+  resolvedBy     User?              @relation("PaymentResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  leaseId        String?            @map("lease_id")
+  lease          Lease?             @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+
   tokenTransactions TokenTransaction[]
 
   @@index([accountReference])
   @@index([status])
   @@index([createdAt])
+  @@index([meterId])
   @@map("payments")
 }
 
@@ -770,6 +794,7 @@ model Lease {
   tenant     LandlordTenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   ledgerEntries LedgerEntry[]
+  payments      Payment[]
 
   @@index([landlordId, status])
   @@index([unitId])

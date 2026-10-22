@@ -19,6 +19,7 @@ import { customerRoutes } from './modules/customers/customer.routes.js';
 import { locationRoutes } from './modules/locations/location.routes.js';
 import { propertyRoutes } from './modules/properties/property.routes.js';
 import { rentalsRoutes } from './modules/rentals/rentals.routes.js';
+import { collectionRoutes } from './modules/collections/collection.routes.js';
 import { publicTokenRoutes, tokenRoutes } from './modules/tokens/token.routes.js';
 import { paymentRoutes } from './modules/payments/payment.routes.js';
 import { ncbaRoutes } from './modules/ncba/ncba.routes.js';
@@ -89,6 +90,7 @@ export async function buildApp(ctx: AppContext, httpServer: HttpServer): Promise
     ['/landlord', propertyRoutes],
     // Rent management: locations, leases, ledger, reports, staff (owner + staff)
     ['/landlord', rentalsRoutes],
+    ['/collections', collectionRoutes],
     ['/meters', meterRoutes],
     ['/customers', customerRoutes],
     ['/locations', locationRoutes],

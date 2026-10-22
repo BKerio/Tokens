@@ -234,6 +234,11 @@ export class VendingService {
    */
   async vendForPayment(payment: Payment, meter: VendMeter, channelLabel: string): Promise<PaymentVendResult> {
     const amount = Number(payment.amount);
+    // Remember which meter the money was for (collections & reconciliation).
+    if (payment.meterId !== meter.id) {
+      await this.app.prisma.payment.update({ where: { id: payment.id }, data: { meterId: meter.id } })
+        .catch((err) => this.app.log.warn({ err, paymentId: payment.id }, 'Could not record payment meter'));
+    }
     const customer = meter.customers[0] ?? null;
     const vendorSms = await this.credentials.vendorSmsConfig(meter.vendorId);
     const base = {

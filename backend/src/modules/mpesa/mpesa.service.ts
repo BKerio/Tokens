@@ -107,8 +107,10 @@ export class MpesaPaymentService {
       throw new BadRequestError(DarajaClient.errorMessage(response));
     }
 
+    const meter = reference === 'Payment' ? null : await this.app.prisma.meter.findUnique({ where: { meterNumber: reference }, select: { id: true } });
     await this.app.prisma.payment.create({
       data: {
+        meterId: meter?.id ?? null,
         channel: PaymentChannel.STK,
         status: PaymentStatus.PENDING,
         checkoutRequestId: response.CheckoutRequestID,
