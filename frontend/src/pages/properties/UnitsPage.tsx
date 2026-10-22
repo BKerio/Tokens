@@ -184,7 +184,9 @@ function MoneyCell({ unit, field, onSaved, disabled }: { unit: PropertyUnit; fie
   const value = unit[field];
   const [draft, setDraft] = useState(money(value));
   const [saving, setSaving] = useState(false);
+  const [focused, setFocused] = useState(false);
   useEffect(() => setDraft(money(value)), [value]);
+  const shown = focused || draft === '' || Number.isNaN(Number(draft)) ? draft : Number(draft).toLocaleString('en-KE', { maximumFractionDigits: 2 });
 
   const commit = async () => {
     const next = draft.trim() === '' ? null : Number(draft);
@@ -211,9 +213,10 @@ function MoneyCell({ unit, field, onSaved, disabled }: { unit: PropertyUnit; fie
         placeholder="-"
         disabled={disabled}
         aria-label={`${field === 'monthlyRent' ? 'Monthly rent' : 'Deposit'} for ${unit.name}`}
-        value={draft}
+        value={shown}
+        onFocus={() => setFocused(true)}
         onChange={(e) => setDraft(e.target.value.replace(/[^\d.]/g, ''))}
-        onBlur={commit}
+        onBlur={() => { setFocused(false); void commit(); }}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       />
     </span>
@@ -310,53 +313,55 @@ function UnitsPage() {
 
       {isLoading || !data || !property ? <LoadingBlock /> : (
         <>
-          <div className="card ub-hero">
-            <div className="ub-hero-main">
-              <span className="un-head-ico"><Home size={22} /></span>
+          <section className="card ux-summary" aria-label={`${property.name} summary`}>
+            <div className="ux-id">
+              <span className="ux-mark"><Home size={20} strokeWidth={1.75} /></span>
               <div style={{ minWidth: 0 }}>
                 <h3>{property.name}</h3>
                 <p>
-                  <span className="pill pill-gray">{humanize(property.propertyType)}</span>
-                  <span className="un-addr"><MapPin size={13} /> {[property.location, property.ward?.name, property.county?.name].filter(Boolean).join(', ')}</span>
+                  <span>{humanize(property.propertyType)}</span>
+                  <span className="ux-sep" aria-hidden="true" />
+                  <span className="ux-addr"><MapPin size={13} strokeWidth={1.75} /> {[property.location, property.ward?.name, property.county?.name].filter(Boolean).join(', ')}</span>
                 </p>
               </div>
-              <div className="ub-rate" aria-label={`${occupancyRate}% occupied`}>
-                <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" className="track" />{occupancyRate > 0 && <circle cx="18" cy="18" r="15.9" className="fill" strokeDasharray={`${occupancyRate} 100`} />}</svg>
-                <span><b>{occupancyRate}%</b><small>occupied</small></span>
+            </div>
+
+            <dl className="ux-kpis">
+              <div>
+                <dt>Occupancy</dt>
+                <dd><b>{occupancyRate}%</b><span className="ux-unit">{counts.OCCUPIED} of {units.length} units</span></dd>
+                <span className="ux-track" aria-hidden="true"><i style={{ width: `${occupancyRate}%` }} /></span>
               </div>
-            </div>
+              <div>
+                <dt>Rent roll</dt>
+                <dd><b>{fmtKes(rentRoll)}</b><span className="ux-unit">per month</span></dd>
+                <span className="ux-foot">{potential > rentRoll ? <>{fmtKes(potential - rentRoll)} more if fully let</> : potential > 0 ? 'Fully let' : 'Set unit rents to see potential'}</span>
+              </div>
+              <div>
+                <dt>Payment accounts</dt>
+                <dd><b>{withPayment}</b><span className="ux-unit">of {units.length} units</span></dd>
+                {manage && missing > 0 ? (
+                  <button type="button" className="ux-action" onClick={() => setDialog('payment')}>Set up {missing === units.length ? 'for all units' : `${missing} remaining`} <span aria-hidden="true">→</span></button>
+                ) : <span className="ux-foot">{missing ? `${missing} not set` : 'All units ready to collect'}</span>}
+              </div>
+            </dl>
 
-            <div className="ub-bar" role="img" aria-label="Units by status">
-              {ORDER.map((o) => counts[o] > 0 && <i key={o} className={o} style={{ flexGrow: counts[o] }} title={`${OCCUPANCY[o].label}: ${counts[o]}`} />)}
-              {units.length === 0 && <i className="none" style={{ flexGrow: 1 }} />}
+            <div className="ux-mix" role="img" aria-label={ORDER.map((o) => `${OCCUPANCY[o].label} ${counts[o]}`).join(', ')}>
+              <div className="ux-mix-bar">
+                {ORDER.map((o) => counts[o] > 0 && <i key={o} className={o} style={{ flexGrow: counts[o] }} />)}
+                {units.length === 0 && <i style={{ flexGrow: 1 }} />}
+              </div>
+              <ul>
+                {ORDER.map((o) => <li key={o}><i className={o} />{OCCUPANCY[o].label}<b>{counts[o]}</b></li>)}
+              </ul>
             </div>
-            <div className="ub-legend">
-              {ORDER.map((o) => (
-                <button key={o} type="button" className={`ub-leg ${o}${filter === o ? ' on' : ''}`} onClick={() => setFilter(filter === o ? 'ALL' : o)}>
-                  <i /> {OCCUPANCY[o].label} <b>{counts[o]}</b>
-                </button>
-              ))}
-              <span className="ub-money">
-                <span><small>Rent roll</small><b>{fmtKes(rentRoll)}<em>/mo</em></b></span>
-                <span><small>If fully let</small><b>{fmtKes(potential)}<em>/mo</em></b></span>
-                <span className={missing ? 'warn' : ''}><small>Payment accounts</small><b>{withPayment}/{units.length}</b></span>
-              </span>
-            </div>
-          </div>
-
-          {manage && missing > 0 && units.length > 0 && (
-            <div className="un-banner">
-              <Wallet size={18} />
-              <span><b>{missing} unit{missing === 1 ? '' : 's'}</b> {missing === 1 ? 'has' : 'have'} no payment account yet. Tenants won’t know where to pay.</span>
-              <button className="btn btn-primary btn-sm" onClick={() => setDialog('payment')}>Set for {missing === units.length ? 'all units' : `${missing} units`}</button>
-            </div>
-          )}
+          </section>
 
           <div className="card">
             <div className="card-pad un-toolbar">
               <div className="seg">
-                {([['ALL', `All ${units.length}`], ['OCCUPIED', 'Occupied'], ['VACANT', 'Vacant'], ['RESERVED', 'Reserved'], ['MAINTENANCE', 'Maintenance'], ['NO_PAYMENT', 'No payment account']] as [Filter, string][]).map(([f, label]) => (
-                  <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>{label}</button>
+                {([['ALL', 'All', units.length], ['OCCUPIED', 'Occupied', counts.OCCUPIED], ['VACANT', 'Vacant', counts.VACANT], ['RESERVED', 'Reserved', counts.RESERVED], ['MAINTENANCE', 'Maintenance', counts.MAINTENANCE], ['NO_PAYMENT', 'No account', missing]] as [Filter, string, number][]).map(([f, label, n]) => (
+                  <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>{label}<span className="ux-count">{n}</span></button>
                 ))}
               </div>
               <SearchInput value={search} onChange={setSearch} placeholder="Search unit, person or meter…" />
@@ -375,7 +380,7 @@ function UnitsPage() {
                       const occ = OCCUPANCY[u.occupancy];
                       const person = occupantOf(u);
                       return (
-                        <tr key={u.id} className={`ut-row ${u.occupancy}${u.status === 'INACTIVE' ? ' un-inactive' : ''}`}>
+                        <tr key={u.id} className={u.status === 'INACTIVE' ? 'un-inactive' : undefined}>
                           <td>
                             <button type="button" className="ut-unit" onClick={() => setViewing(u.id)}>
                               <b>{u.name}</b><small>{u.unitNumber ? `No. ${u.unitNumber}` : 'No number'}{u.status === 'INACTIVE' ? ' · Inactive' : ''}</small>
@@ -383,7 +388,7 @@ function UnitsPage() {
                           </td>
                           <td>
                             <span className="ut-occ">
-                              <span className={`uc-occ ${u.occupancy}`}><occ.Icon size={13} /> {occ.label}</span>
+                              <span className={`ux-status ${u.occupancy}`}><i aria-hidden="true" />{occ.label}</span>
                               {person
                                 ? <span className="ut-person"><span className="uc-av">{person.name.slice(0, 1).toUpperCase()}</span><span><b>{person.name}</b><small>{person.detail}</small></span></span>
                                 : u.occupancyNote && <small className="ut-note">{u.occupancyNote}</small>}
@@ -395,7 +400,7 @@ function UnitsPage() {
                             {u.payment ? (
                               <button type="button" className="un-pay-btn" onClick={() => setViewing(u.id)} title="Change payment account"><PaymentChip payment={u.payment} /></button>
                             ) : manage ? (
-                              <button type="button" className="un-pay-add" onClick={() => setViewing(u.id)}><Plus size={14} /> Add account</button>
+                              <button type="button" className="ux-set" onClick={() => setViewing(u.id)}><Plus size={13} /> Set account</button>
                             ) : <span className="rn-muted">Not set</span>}
                           </td>
                           <td>
@@ -415,8 +420,8 @@ function UnitsPage() {
                           </td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             <span className="ut-actions">
-                              <button type="button" className="uc-view" onClick={() => setViewing(u.id)}><Eye size={14} /> View</button>
-                              {manage && !u.activeLease && <button type="button" className="uc-del" title="Delete unit" onClick={() => askDelete(u)}><Trash2 size={14} /></button>}
+                              <button type="button" className="ux-view" onClick={() => setViewing(u.id)}><Eye size={14} strokeWidth={1.75} /> View</button>
+                              {manage && !u.activeLease && <button type="button" className="ux-icon" title="Delete unit" aria-label={`Delete ${u.name}`} onClick={() => askDelete(u)}><Trash2 size={14} strokeWidth={1.75} /></button>}
                             </span>
                           </td>
                         </tr>
