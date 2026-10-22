@@ -2,6 +2,7 @@ import { AppContext } from '../../context.js';
 import type { LandlordTenant, Prisma, PropertyUnit } from '../../generated/prisma/index.js';
 import { PropertyType, RecordStatus, UnitOccupancy, UnitPaymentMethod } from '../../shared/types/index.js';
 import { normalizeMsisdn } from '../../shared/utils/phone.js';
+import { paymentSources, type PaymentSource } from './payment-sources.js';
 import { ForbiddenError, NotFoundError, UnprocessableError } from '../../shared/errors/AppError.js';
 
 export interface PropertyInput {
@@ -22,12 +23,14 @@ const REGION_INCLUDE = {
   ward: { select: { id: true, name: true } },
 } satisfies Prisma.PropertyInclude;
 
-/** Where a unit's tenant pays rent. `account` blank on a paybill means "use the lease code". */
+/**
+ * Where a unit's tenant pays rent: one of the payment accounts configured in
+ * the system (see payment-sources.ts). `account` blank on a paybill means
+ * "use the lease code".
+ */
 export interface PaymentAccountInput {
-  method: UnitPaymentMethod;
-  number: string;
+  source: string;
   account?: string | null;
-  bank?: string | null;
   accountName?: string | null;
 }
 
@@ -67,23 +70,28 @@ const UNIT_INCLUDE = {
 
 type UnitRow = Prisma.PropertyUnitGetPayload<{ include: typeof UNIT_INCLUDE }>;
 
-/** Payment-account columns for a unit, normalised so only the fields that method uses are kept. */
-function paymentColumns(payment: PaymentAccountInput | null) {
+/** Payment-account columns for a unit: the chosen configured account plus a snapshot of its number. */
+function paymentColumns(payment: PaymentAccountInput | null, sources: PaymentSource[]) {
   if (!payment) {
-    return { paymentMethod: null, paymentNumber: null, paymentAccount: null, paymentBank: null, paymentAccountName: null };
+    return { paymentSource: null, paymentMethod: null, paymentNumber: null, paymentAccount: null, paymentBank: null, paymentAccountName: null };
   }
+  const source = sources.find((s) => s.key === payment.source);
+  if (!source) throw new UnprocessableError('That payment account is not configured. Choose one of the accounts set up in the system.');
   const clean = (v?: string | null) => (v && v.trim() ? v.trim() : null);
   return {
-    paymentMethod: payment.method,
-    paymentNumber: payment.number.trim(),
-    paymentAccount: payment.method === UnitPaymentMethod.MPESA_PAYBILL ? clean(payment.account) : null,
-    paymentBank: payment.method === UnitPaymentMethod.BANK ? clean(payment.bank) : null,
+    paymentSource: source.key,
+    paymentMethod: source.method,
+    paymentNumber: source.number,
+    paymentAccount: source.method === UnitPaymentMethod.MPESA_PAYBILL ? clean(payment.account) : null,
+    paymentBank: null,
     paymentAccountName: clean(payment.accountName),
   };
 }
 
-function presentUnit(u: UnitRow) {
+/** `sources` (the landlord's configured accounts) makes the number live and flags units whose account was removed. */
+function presentUnit(u: UnitRow, sources?: PaymentSource[]) {
   const lease = u.leases[0];
+  const live = u.paymentSource && sources ? sources.find((s) => s.key === u.paymentSource) : undefined;
   return {
     id: u.id,
     name: u.name,
@@ -100,11 +108,16 @@ function presentUnit(u: UnitRow) {
     depositAmount: u.depositAmount === null ? null : Number(u.depositAmount),
     payment: u.paymentMethod
       ? {
-          method: u.paymentMethod,
-          number: u.paymentNumber ?? '',
+          method: live?.method ?? u.paymentMethod,
+          number: live?.number ?? u.paymentNumber ?? '',
           account: u.paymentAccount,
           bank: u.paymentBank,
           accountName: u.paymentAccountName,
+          source: u.paymentSource,
+          sourceLabel: live?.label ?? null,
+          scope: live?.scope ?? null,
+          // Set on a unit whose account is no longer configured (or was typed in by hand before).
+          stale: !!sources && !live,
         }
       : null,
     activeLease: lease ? { id: lease.id, code: lease.code, tenantId: lease.tenant.id, tenantName: lease.tenant.name, tenantPhone: lease.tenant.phone } : null,
@@ -278,7 +291,7 @@ export class PropertyService {
   /** One property with its units, tenants and the landlord's meters (for linking). */
   async detail(landlordId: string, propertyId: string) {
     await this.get(landlordId, propertyId);
-    const [property, units, tenants, assignedMeters] = await Promise.all([
+    const [property, units, tenants, assignedMeters, sources] = await Promise.all([
       this.app.prisma.property.findUniqueOrThrow({
         where: { id: propertyId },
         include: { locationGroup: { select: { id: true, name: true } }, ...REGION_INCLUDE },
@@ -290,13 +303,20 @@ export class PropertyService {
         orderBy: { meterNumber: 'asc' },
         select: { id: true, meterNumber: true, status: true },
       }),
+      paymentSources(this.app, landlordId),
     ]);
     return {
       property,
-      units: units.sort(byUnitName).map(presentUnit),
+      units: units.sort(byUnitName).map((u) => presentUnit(u, sources)),
+      paymentSources: sources,
       tenants: tenants.map(presentTenant),
       assignedMeters,
     };
+  }
+
+  /** Payment accounts configured for this landlord (their own + TokenPap's) that units can use. */
+  async paymentSources(landlordId: string) {
+    return paymentSources(this.app, landlordId);
   }
 
   /** Recounts a property's units into `noOfUnits`. */
@@ -324,6 +344,7 @@ export class PropertyService {
     await this.get(landlordId, input.propertyId);
     if (input.meterId) await this.assertMetersOwned(landlordId, [input.meterId]);
     const { propertyId, meterId, payment, ...fields } = input;
+    const sources = payment ? await paymentSources(this.app, landlordId) : [];
 
     const unit = await this.app.prisma.$transaction(async (tx) => {
       if (meterId) await tx.propertyUnit.updateMany({ where: { meterId }, data: { meterId: null } });
@@ -334,7 +355,7 @@ export class PropertyService {
           propertyId,
           meterId: meterId ?? null,
           status: fields.status ?? RecordStatus.ACTIVE,
-          ...(payment !== undefined ? paymentColumns(payment) : {}),
+          ...(payment !== undefined ? paymentColumns(payment, sources) : {}),
         },
         include: UNIT_INCLUDE,
       });
@@ -365,15 +386,16 @@ export class PropertyService {
       return units;
     });
     await this.audit(actorId, 'CREATE', propertyId, `Added ${created.length} units (${prefix} ${created[0]?.unitNumber}…)`);
-    return created.map(presentUnit);
+    return created.map((u) => presentUnit(u));
   }
 
   /** Copies one payment account onto every unit of a property (or only those without one). */
   async applyPaymentAccount(landlordId: string, actorId: string, propertyId: string, payment: PaymentAccountInput, onlyMissing: boolean) {
     const property = await this.get(landlordId, propertyId);
+    const data = paymentColumns(payment, await paymentSources(this.app, landlordId));
     const { count } = await this.app.prisma.propertyUnit.updateMany({
       where: { propertyId, ...(onlyMissing ? { paymentMethod: null } : {}) },
-      data: paymentColumns(payment),
+      data,
     });
     await this.audit(actorId, 'UPDATE', propertyId, `Set the payment account on ${count} unit(s) of ${property.name}`);
     return { updated: count };
@@ -403,7 +425,7 @@ export class PropertyService {
     await this.audit(actorId, 'UPDATE', propertyId, `Saved meter assignments for ${assignments.length} unit(s)`);
 
     const updated = await this.app.prisma.propertyUnit.findMany({ where: { id: { in: unitIds } }, include: UNIT_INCLUDE });
-    return updated.map(presentUnit);
+    return updated.map((u) => presentUnit(u));
   }
 
   private async ownedUnit(landlordId: string, id: string) {
@@ -416,6 +438,7 @@ export class PropertyService {
   async updateUnit(landlordId: string, actorId: string, id: string, input: UnitInput) {
     const current = await this.ownedUnit(landlordId, id);
     const { payment, tenantIds, customerIds, ...fields } = input;
+    const payData = payment !== undefined ? paymentColumns(payment, payment ? await paymentSources(this.app, landlordId) : []) : {};
 
     if (fields.occupancy && fields.occupancy !== UnitOccupancy.OCCUPIED) {
       const lease = await this.app.prisma.lease.findFirst({ where: { unitId: id, status: 'ACTIVE' }, select: { code: true } });
@@ -445,7 +468,7 @@ export class PropertyService {
       const occupancy = fields.occupancy ?? (linksSomeone && current.occupancy === UnitOccupancy.VACANT ? UnitOccupancy.OCCUPIED : undefined);
       return tx.propertyUnit.update({
         where: { id },
-        data: { ...fields, ...(occupancy ? { occupancy } : {}), ...(payment !== undefined ? paymentColumns(payment) : {}) },
+        data: { ...fields, ...(occupancy ? { occupancy } : {}), ...payData },
         include: UNIT_INCLUDE,
       });
     });

@@ -10,7 +10,7 @@ import { humanize } from '@/lib/format';
 import { ChoiceChips, ChoiceTiles, FormSheet, SheetField, SheetGrid, SheetSection } from '@/components/shared/FormSheet';
 import { EmptyState, LoadingBlock, PageHeader, SearchInput } from '@/components/shared/ui';
 import { fmtKes } from '@/lib/format';
-import type { PropertyUnit, UnitOccupancy } from '@/types/api';
+import type { PaymentSource, PropertyUnit, UnitOccupancy } from '@/types/api';
 import LeaseFormModal from '@/pages/rentals/LeaseFormModal';
 import { PaymentAccountFields, PaymentChip, emptyDraft, paymentError, toPayment, type PaymentDraft } from './paymentAccount';
 import UnitSheet, { OCCUPANCY } from './UnitSheet';
@@ -104,13 +104,13 @@ function AddUnitsModal({ propertyId, nextNumber, onClose }: { propertyId: string
 }
 
 /** One payment account copied onto every unit (or only units that don't have one yet). */
-function ApplyPaymentModal({ propertyId, propertyName, missing, total, onClose }: { propertyId: string; propertyName: string; missing: number; total: number; onClose: () => void }) {
+function ApplyPaymentModal({ propertyId, propertyName, missing, total, sources, onClose }: { propertyId: string; propertyName: string; missing: number; total: number; sources: PaymentSource[]; onClose: () => void }) {
   const refresh = useRefresh(propertyId);
   const [draft, setDraft] = useState<PaymentDraft>(emptyDraft());
   const [scope, setScope] = useState<'all' | 'missing'>(missing > 0 && missing < total ? 'missing' : 'all');
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
-  const problem = paymentError(draft);
+  const problem = paymentError(draft, sources);
   const affected = scope === 'missing' ? missing : total;
 
   const submit = async (e: FormEvent) => {
@@ -147,7 +147,7 @@ function ApplyPaymentModal({ propertyId, propertyName, missing, total, onClose }
       meta={<><DoorOpen size={15} /> <b>{affected} of {total}</b> units</>}
     >
       <SheetSection id="account">
-        <PaymentAccountFields value={draft} onChange={setDraft} errors={tried ? problem : null} />
+        <PaymentAccountFields value={draft} onChange={setDraft} sources={sources} errors={tried ? problem : null} />
       </SheetSection>
       <SheetSection id="scope">
         <ChoiceTiles
@@ -432,7 +432,7 @@ function UnitsPage() {
 
       {dialog === 'add' && <AddUnitsModal propertyId={propertyId} nextNumber={nextNumber} onClose={() => setDialog(null)} />}
       {dialog === 'payment' && property && (
-        <ApplyPaymentModal propertyId={propertyId} propertyName={property.name} missing={missing} total={units.length} onClose={() => setDialog(null)} />
+        <ApplyPaymentModal propertyId={propertyId} propertyName={property.name} missing={missing} total={units.length} sources={data?.paymentSources ?? []} onClose={() => setDialog(null)} />
       )}
       {viewingUnit && property && data && (
         <UnitSheet
@@ -442,6 +442,7 @@ function UnitsPage() {
           propertyName={property.name}
           meters={data.assignedMeters}
           unitsByMeter={unitsByMeter}
+          paymentSources={data.paymentSources}
           canManage={manage}
           canPeople={can('tenants.manage')}
           onClose={() => setViewing(null)}

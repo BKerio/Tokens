@@ -327,6 +327,29 @@ export interface UnitPaymentAccount {
   account?: string | null;
   bank?: string | null;
   accountName?: string | null;
+  /** Configured account the unit uses, e.g. "landlord:paybill"; its number is kept in sync. */
+  source?: string | null;
+  sourceLabel?: string | null;
+  scope?: 'LANDLORD' | 'GLOBAL' | null;
+  /** The account is no longer configured (or was typed in by hand before). */
+  stale?: boolean;
+}
+
+/** A payment account configured in the system that units can use. */
+export interface PaymentSource {
+  key: string;
+  scope: 'LANDLORD' | 'GLOBAL';
+  label: string;
+  method: UnitPaymentMethod;
+  number: string;
+  origin: string;
+}
+
+/** What a unit saves: which configured account, plus the paybill account reference. */
+export interface UnitPaymentInput {
+  source: string;
+  account?: string | null;
+  accountName?: string | null;
 }
 
 export interface PropertyUnit {
@@ -384,6 +407,7 @@ export interface Tenant {
 export interface PropertyDetail {
   property: Property;
   units: PropertyUnit[];
+  paymentSources: PaymentSource[];
   tenants: Tenant[];
   assignedMeters: { id: string; meterNumber: string; status: MeterStatus }[];
 }

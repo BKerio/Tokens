@@ -2105,3 +2105,24 @@ h1, h2 { font-family: var(--font-display); }
 .ut-money input { flex: 1; min-width: 0; height: 100%; padding: 0 10px; border: 0; outline: none; background: transparent; font-size: 14px; color: var(--ink); }
 .ut-money input:disabled { color: var(--ink-2); }
 .ut-actions { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ── Payment account picker (ps-*) ─────────────────────────────────────── */
+.ps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.ps-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border-strong); background: var(--surface); font: inherit; text-align: left; cursor: pointer; transition: border-color .14s, background .14s, box-shadow .14s; }
+.ps-card:hover { border-color: var(--green); }
+.ps-ico { width: 38px; height: 38px; flex-shrink: 0; border-radius: 11px; display: grid; place-items: center; background: rgba(22, 163, 74, .12); color: #15803D; }
+.ps-card.GLOBAL .ps-ico { background: var(--green-light); color: var(--green); }
+.ps-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
+.ps-text b { font-size: 13.5px; color: var(--ink); }
+.ps-text small { font-size: 12.5px; color: var(--muted); }
+.ps-check { width: 22px; height: 22px; flex-shrink: 0; border-radius: 99px; border: 1.5px solid var(--border-strong); display: grid; place-items: center; color: #fff; transition: all .14s; }
+.ps-card.on { border-color: var(--green); background: var(--green-light); box-shadow: 0 0 0 3px var(--ring); }
+.ps-card.on .ps-check { background: var(--green); border-color: var(--green); }
+.ps-none { font-size: 13px; color: var(--muted); font-style: italic; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--border-strong); }
+.ps-empty { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--amber-soft); border: 1px solid rgba(183, 121, 31, .3); color: var(--amber); }
+.ps-empty > span { display: flex; flex-direction: column; gap: 3px; }
+.ps-empty b { font-size: 14px; color: var(--ink); }
+.ps-empty small { font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.un-pay-ico.global { background: var(--green-light); color: var(--green); }
+.un-pay.stale .un-pay-ico { background: var(--amber-soft); color: var(--amber); }
+.un-pay.stale small { color: var(--amber); font-weight: 600; }

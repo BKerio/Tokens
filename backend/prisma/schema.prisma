@@ -686,6 +686,9 @@ model PropertyUnit {
 
   // Where this unit's tenant pays rent. paymentNumber is the paybill, till or
   // bank account number; paymentAccount is the account no. to enter on a paybill.
+  // Which configured account (landlord or global M-Pesa / NCBA) the unit uses, e.g. "landlord:paybill".
+  // The method/number columns are a snapshot; the live number is read from that config.
+  paymentSource      String?            @map("payment_source")
   paymentMethod      UnitPaymentMethod? @map("payment_method")
   paymentNumber      String?            @map("payment_number")
   paymentAccount     String?            @map("payment_account")

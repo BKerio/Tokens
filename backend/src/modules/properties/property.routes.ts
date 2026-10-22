@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AppContext } from '../../context.js';
 import { authenticate } from '../../middleware/auth.js';
 import { requireRole } from '../../shared/guards/requireRole.js';
-import { PropertyType, RecordStatus, UnitOccupancy, UnitPaymentMethod } from '../../shared/types/index.js';
+import { PropertyType, RecordStatus, UnitOccupancy } from '../../shared/types/index.js';
 import { ForbiddenError, NotFoundError } from '../../shared/errors/AppError.js';
 import { nullableString, optionalString, parse } from '../../shared/utils/validation.js';
 import { LANDLORD_ORG_ROLES, assertCan, assertProperty, landlordAccess, type LandlordPermission } from '../rentals/access.js';
@@ -31,28 +31,12 @@ const meterRef = z.union([z.string().min(1), z.null()]).optional();
 
 const rentField = z.union([z.coerce.number().min(0).max(100_000_000), z.null()]).optional();
 
-const digits = (label: string) => z.string().trim().regex(/^\d{5,8}$/, `${label} must be 5-8 digits`);
-
-/** A unit's payment account. A paybill's account no. may be left blank: tenants then use their lease code. */
-const paymentAccountSchema = z.discriminatedUnion('method', [
-  z.object({
-    method: z.literal(UnitPaymentMethod.MPESA_PAYBILL),
-    number: digits('Paybill number'),
-    account: z.string().trim().max(40).nullable().optional(),
-    accountName: z.string().trim().max(120).nullable().optional(),
-  }),
-  z.object({
-    method: z.literal(UnitPaymentMethod.MPESA_TILL),
-    number: digits('Till number'),
-    accountName: z.string().trim().max(120).nullable().optional(),
-  }),
-  z.object({
-    method: z.literal(UnitPaymentMethod.BANK),
-    bank: z.string().trim().min(2, 'Bank name is required').max(120),
-    number: z.string().trim().min(4, 'Account number is required').max(40),
-    accountName: z.string().trim().max(120).nullable().optional(),
-  }),
-]);
+/** A unit's payment account: one of the configured accounts. A paybill's account no. may be blank (tenants use their lease code). */
+const paymentAccountSchema = z.object({
+  source: z.string().trim().min(1, 'Choose a payment account').max(60),
+  account: z.string().trim().max(40).nullable().optional(),
+  accountName: z.string().trim().max(120).nullable().optional(),
+});
 
 const unitFields = {
   unitNumber: nullableString,
@@ -198,6 +182,11 @@ export async function propertyRoutes(app: FastifyInstance, ctx: AppContext) {
     const { landlordId, actorId } = await who(req, 'properties.manage', req.params.id);
     const units = await service.createUnitsBulk(landlordId, actorId, req.params.id, parse(bulkUnitsSchema, req.body));
     return reply.status(201).send({ ok: true, message: `${units.length} units created successfully`, data: units });
+  });
+
+  app.get('/payment-sources', async (req) => {
+    const { landlordId } = await who(req, 'properties.view');
+    return { ok: true, data: await service.paymentSources(landlordId) };
   });
 
   app.put<Params>('/properties/:id/payment-account', async (req) => {

@@ -1,5 +1,5 @@
 import api from '@/api/client';
-import type { LandlordCustomer, Property, PropertyDetail, PropertyType, PropertyUnit, RecordStatus, Tenant, UnitOccupancy, UnitPaymentAccount } from '@/types/api';
+import type { LandlordCustomer, PaymentSource, Property, PropertyDetail, PropertyType, PropertyUnit, RecordStatus, Tenant, UnitOccupancy, UnitPaymentInput } from '@/types/api';
 
 export interface PropertyInput {
   name: string;
@@ -20,7 +20,7 @@ export interface UnitInput {
   monthlyRent?: number | null;
   depositAmount?: number | null;
   /** null clears the payment account; leave out to keep it. */
-  payment?: UnitPaymentAccount | null;
+  payment?: UnitPaymentInput | null;
   occupancy?: UnitOccupancy;
   occupancyNote?: string | null;
   /** Replaces the tenants / customers linked to the unit. */
@@ -72,7 +72,7 @@ export async function updateUnit(id: string, data: UnitInput): Promise<PropertyU
 }
 
 /** Sets one payment account on every unit of a property (or only units without one). */
-export async function applyPaymentAccount(propertyId: string, payment: UnitPaymentAccount, onlyMissing: boolean): Promise<{ updated: number }> {
+export async function applyPaymentAccount(propertyId: string, payment: UnitPaymentInput, onlyMissing: boolean): Promise<{ updated: number }> {
   return (await api.put(`/landlord/properties/${propertyId}/payment-account`, { payment, onlyMissing })).data.data;
 }
 
@@ -127,4 +127,9 @@ export async function updateLandlordCustomer(id: string, data: Partial<LandlordC
 
 export async function deleteLandlordCustomer(id: string): Promise<void> {
   await api.delete(`/landlord/customers/${id}`);
+}
+
+/** Payment accounts configured for this landlord (theirs + TokenPap's) that units can use. */
+export async function listPaymentSources(): Promise<PaymentSource[]> {
+  return (await api.get('/landlord/payment-sources')).data.data;
 }

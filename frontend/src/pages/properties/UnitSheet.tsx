@@ -10,8 +10,8 @@ import { notify } from '@/lib/alert';
 import { fmtKes } from '@/lib/format';
 import AppLoader from '@/components/shared/AppLoader';
 import { AmountInput, ChoiceChips, ChoiceTiles, FormSheet, SheetField, SheetGrid, SheetNote, SheetSection, type SheetStep } from '@/components/shared/FormSheet';
-import type { MeterStatus, PersonRef, PropertyUnit, RecordStatus, UnitOccupancy } from '@/types/api';
-import { PaymentAccountFields, emptyDraft, paymentError, toPayment, type PaymentDraft } from './paymentAccount';
+import type { MeterStatus, PaymentSource, PersonRef, PropertyUnit, RecordStatus, UnitOccupancy } from '@/types/api';
+import { PaymentAccountFields, PaymentChip, emptyDraft, paymentError, toPayment, type PaymentDraft } from './paymentAccount';
 
 export const OCCUPANCY: Record<UnitOccupancy, { label: string; hint: string; Icon: LucideIcon }> = {
   OCCUPIED: { label: 'Occupied', hint: 'Someone lives or works here', Icon: Users },
@@ -117,13 +117,15 @@ function PeoplePicker({ kind, linked, onChange, propertyId, unitId, disabled }: 
 }
 
 /** View / edit one unit: status, who lives there, rent, payment account and meter. */
-export default function UnitSheet({ unit, propertyId, propertyName, meters, unitsByMeter, canManage, canPeople, onClose, onCreateLease }: {
+export default function UnitSheet({ unit, propertyId, propertyName, meters, unitsByMeter, paymentSources, canManage, canPeople, onClose, onCreateLease }: {
   unit: PropertyUnit;
   propertyId: string;
   propertyName: string;
   meters: { id: string; meterNumber: string; status: MeterStatus }[];
   /** meterId → name of the unit it's on. */
   unitsByMeter: Map<string, string>;
+  /** Payment accounts configured for this landlord. */
+  paymentSources: PaymentSource[];
   canManage: boolean;
   canPeople: boolean;
   onClose: () => void;
@@ -148,7 +150,7 @@ export default function UnitSheet({ unit, propertyId, propertyName, meters, unit
 
   const rentN = Number(rent) || 0;
   const depositN = Number(deposit) || 0;
-  const payProblem = hasPayment ? paymentError(draft) : null;
+  const payProblem = hasPayment ? paymentError(draft, paymentSources) : null;
   const readOnly = !canManage;
 
   // Linking the first person to an empty unit marks it occupied.
@@ -282,14 +284,14 @@ export default function UnitSheet({ unit, propertyId, propertyName, meters, unit
 
       <SheetSection id="payment">
         {readOnly ? (
-          unit.payment ? <PaymentAccountFields value={draft} onChange={() => {}} /> : <span className="fs-picks-empty">No payment account set.</span>
+          unit.payment ? <PaymentChip payment={unit.payment} /> : <span className="fs-picks-empty">No payment account set.</span>
         ) : (
           <>
             <label className={`fs-check${hasPayment ? ' on' : ''}`}>
               <input type="checkbox" checked={hasPayment} onChange={(e) => setHasPayment(e.target.checked)} />
               <span><b>Tenants of this unit pay into a specific account</b><small>Shown on statements and receipts so tenants know where to send rent.</small></span>
             </label>
-            {hasPayment && <PaymentAccountFields value={draft} onChange={setDraft} errors={tried ? payProblem : null} />}
+            {hasPayment && <PaymentAccountFields value={draft} onChange={setDraft} sources={paymentSources} errors={tried ? payProblem : null} />}
           </>
         )}
       </SheetSection>
