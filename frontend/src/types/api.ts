@@ -402,6 +402,7 @@ export interface Tenant {
   status: RecordStatus;
   unitId: string | null;
   propertyId: string;
+  createdAt?: string;
   /** May sign in to the tenant portal. */
   portalAccess?: boolean;
   portalInvitedAt?: string | null;

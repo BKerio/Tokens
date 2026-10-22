@@ -152,6 +152,7 @@ function presentTenant(t: LandlordTenant) {
     propertyId: t.propertyId,
     portalAccess: t.portalAccess,
     portalInvitedAt: t.portalInvitedAt,
+    createdAt: t.createdAt,
   };
 }
 

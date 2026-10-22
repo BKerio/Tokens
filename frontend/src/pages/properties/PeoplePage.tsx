@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DoorOpen, FileSignature, Home, KeyRound, Link2, MessageSquare, Pencil, Phone, ShieldCheck, Trash2, UserPlus, UserRound, Users, Zap } from 'lucide-react';
+import { Eye, KeyRound, Link2, MessageSquare, ShieldCheck, Trash2, UserPlus, UserRound, Users, Zap } from 'lucide-react';
 import {
   createLandlordCustomer, createTenant, deleteLandlordCustomer, deleteTenant, getPropertyUnits, listLandlordCustomers, listProperties, listTenants,
   updateLandlordCustomer, updateTenant,
@@ -18,7 +18,7 @@ type Kind = 'tenant' | 'customer';
 type Editing = { kind: Kind; tenant?: Tenant; customer?: LandlordCustomer } | null;
 
 /** Add / edit a tenant or a customer, optionally linking them to a unit. */
-function PersonSheet({ editing, onClose }: { editing: NonNullable<Editing>; onClose: () => void }) {
+function PersonSheet({ editing, readOnly, onClose }: { editing: NonNullable<Editing>; readOnly?: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const existing = editing.tenant ?? editing.customer;
   const [kind, setKind] = useState<Kind>(editing.kind);
@@ -82,7 +82,8 @@ function PersonSheet({ editing, onClose }: { editing: NonNullable<Editing>; onCl
   return (
     <FormSheet
       icon={kind === 'tenant' ? UserRound : Zap}
-      title={existing ? `Edit ${existing.name}` : kind === 'tenant' ? 'Add a tenant' : 'Add a customer'}
+      title={existing ? existing.name : kind === 'tenant' ? 'Add a tenant' : 'Add a customer'}
+      readOnly={readOnly}
       subtitle={kind === 'tenant'
         ? 'Tenants rent a unit. Link them to the unit they live in; create a lease to start billing rent.'
         : 'Customers buy prepaid tokens. Linked to a unit, they buy for that unit’s meter and sign in with their phone.'}
@@ -98,6 +99,19 @@ function PersonSheet({ editing, onClose }: { editing: NonNullable<Editing>; onCl
       submitLabel={existing ? 'Save changes' : kind === 'tenant' ? 'Add tenant' : 'Add customer'}
       meta={<><Link2 size={15} /> {unit ? <><b>{unit.name}</b> · {detail?.property.name}</> : <b>Not linked to a unit</b>}</>}
     >
+      {existing && (
+        <div className="cl-receipt pp-facts">
+          <span><small>{kind === 'tenant' ? 'Tenant' : 'Customer'} since</small><b>{new Date(editing.tenant?.createdAt ?? editing.customer?.createdAt ?? Date.now()).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</b></span>
+          <span><small>Unit</small><b>{editing.tenant?.unitName ?? editing.customer?.unit?.name ?? 'Not linked'}</b><em>{editing.tenant?.propertyName ?? editing.customer?.unit?.property.name ?? ''}</em></span>
+          <span>
+            <small>{kind === 'tenant' ? 'Lease' : 'Meter'}</small>
+            <b className="mono">{kind === 'tenant' ? editing.tenant?.activeLease?.code ?? 'None' : editing.customer?.meter?.meterNumber ?? 'None'}</b>
+            {kind === 'tenant' && editing.tenant?.activeLease && <em><Link to={`/landlord/leases?lease=${editing.tenant.activeLease.id}`} onClick={onClose}>Open lease →</Link></em>}
+          </span>
+          <span><small>Account</small><b>{hadAccess ? 'Can sign in' : 'No account'}</b><em>{invitedAt ? `Invited ${new Date(invitedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : hadAccess ? 'Not invited yet' : ''}</em></span>
+        </div>
+      )}
+
       <SheetSection id="person">
         {!existing && (
           <ChoiceTiles
@@ -292,39 +306,50 @@ export default function PeoplePage() {
             action={manage && !list.length ? <button className="btn btn-primary btn-sm" onClick={() => setEditing({ kind: tab })}>Add {tab === 'tenant' ? 'a tenant' : 'a customer'}</button> : undefined}
           />
         ) : (
-          <div className="pp-list">
-            {rows.map((r) => (
-              <div key={r.id} className={`pp-row${r.status === 'INACTIVE' ? ' inactive' : ''}`}>
-                <span className={`pp-av ${tab}`}>{r.name.slice(0, 1).toUpperCase()}</span>
-                <span className="pp-who">
-                  <b>{r.name}{r.status === 'INACTIVE' && <em>Inactive</em>}{r.portal && <em className="pp-portal" title={r.invitedAt ? `Invited ${new Date(r.invitedAt).toLocaleDateString('en-GB')}` : 'Can sign in'}><KeyRound size={10} /> Can sign in</em>}</b>
-                  <small><Phone size={12} /> {r.phone}{r.email ? ` · ${r.email}` : ''}</small>
-                </span>
-                <span className="pp-where">
-                  {r.unit ? (
-                    <><DoorOpen size={14} /><span><b>{r.unit}</b><small><Home size={11} /> {r.property}</small></span></>
-                  ) : (
-                    <span className="pp-unlinked">{tab === 'tenant' && r.property ? `${r.property} · no unit` : 'Not linked to a unit'}</span>
-                  )}
-                </span>
-                <span className="pp-tags">
-                  {r.lease && <Link to={`/landlord/leases?lease=${r.lease.id}`} className="pp-tag lease"><FileSignature size={12} /> {r.lease.code}</Link>}
-                  {r.meter && <span className="pp-tag meter"><Zap size={12} /> {r.meter}</span>}
-                  {tab === 'customer' && r.unit && !r.meter && <span className="pp-tag warn">No meter on unit</span>}
-                </span>
-                {manage && (
-                  <span className="pp-actions">
-                    <button className="uc-view" onClick={() => setEditing({ kind: tab, tenant: r.tenant, customer: r.customer })}><Pencil size={13} /> Edit</button>
-                    {!r.lease && <button className="icon-btn" title="Remove" onClick={() => askRemove(r)}><Trash2 size={14} /></button>}
-                  </span>
-                )}
-              </div>
-            ))}
+          <div className="tbl-wrap">
+            <table className="tbl ut-table pp-table">
+              <thead><tr>{['Name', 'Contact', 'Unit', tab === 'tenant' ? 'Lease' : 'Meter', 'Account', 'Status', ''].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className={r.status === 'INACTIVE' ? 'un-inactive' : undefined}>
+                    <td>
+                      <button type="button" className="pp-name" onClick={() => setEditing({ kind: tab, tenant: r.tenant, customer: r.customer })}>
+                        <span className={`pp-av ${tab}`}>{r.name.slice(0, 1).toUpperCase()}</span>
+                        <b>{r.name}</b>
+                      </button>
+                    </td>
+                    <td><span className="rn-strong mono" style={{ fontWeight: 500 }}>{r.phone}</span><span className="rn-sub">{r.email ?? '-'}</span></td>
+                    <td>
+                      {r.unit
+                        ? <><span className="rn-strong" style={{ fontWeight: 500 }}>{r.unit}</span><span className="rn-sub">{r.property}</span></>
+                        : <span className="rn-muted">{tab === 'tenant' && r.property ? `${r.property} · no unit` : 'Not linked'}</span>}
+                    </td>
+                    <td>
+                      {tab === 'tenant'
+                        ? (r.lease ? <Link to={`/landlord/leases?lease=${r.lease.id}`} className="mono pp-code">{r.lease.code}</Link> : <span className="rn-muted">None</span>)
+                        : (r.meter ? <span className="mono">{r.meter}</span> : <span className="rn-muted">{r.unit ? 'No meter on unit' : 'None'}</span>)}
+                    </td>
+                    <td>
+                      {r.portal
+                        ? <><span className="ux-status OCCUPIED"><i />Can sign in</span><span className="rn-sub">{r.invitedAt ? `Invited ${new Date(r.invitedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Not invited yet'}</span></>
+                        : <span className="ux-status VACANT"><i />No account</span>}
+                    </td>
+                    <td><span className={`ux-status ${r.status === 'ACTIVE' ? 'OCCUPIED' : 'MAINTENANCE'}`}><i />{r.status === 'ACTIVE' ? 'Active' : 'Inactive'}</span></td>
+                    <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      <span className="ut-actions">
+                        <button type="button" className="ux-view" onClick={() => setEditing({ kind: tab, tenant: r.tenant, customer: r.customer })}><Eye size={14} strokeWidth={1.75} /> View</button>
+                        {manage && !r.lease && <button type="button" className="ux-icon" title="Remove" aria-label={`Remove ${r.name}`} onClick={() => askRemove(r)}><Trash2 size={14} strokeWidth={1.75} /></button>}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
-      {editing && <PersonSheet key={`${editing.kind}-${editing.tenant?.id ?? editing.customer?.id ?? 'new'}`} editing={editing} onClose={() => setEditing(null)} />}
+      {editing && <PersonSheet key={`${editing.kind}-${editing.tenant?.id ?? editing.customer?.id ?? 'new'}`} editing={editing} readOnly={!manage} onClose={() => setEditing(null)} />}
     </div>
   );
 }

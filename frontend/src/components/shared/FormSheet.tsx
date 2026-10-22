@@ -125,7 +125,9 @@ export function FormSheet({
 
         <div className="vf-body scroll-thin" ref={bodyRef} onScroll={onScroll}>
           {error && <div className="vf-alert" role="alert"><CircleAlert size={16} /> {error}</div>}
-          <Ctx.Provider value={{ steps, register: (id, el) => { refs.current[id] = el; } }}>{children}</Ctx.Provider>
+          <Ctx.Provider value={{ steps, register: (id, el) => { refs.current[id] = el; } }}>
+            {readOnly ? <fieldset className="vf-fieldset" disabled>{children}</fieldset> : children}
+          </Ctx.Provider>
         </div>
 
         <footer className="vf-foot">
