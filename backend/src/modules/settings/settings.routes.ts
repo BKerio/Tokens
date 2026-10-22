@@ -251,7 +251,8 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
     const input = parse(testSmsSchema, req.body);
     const actor = await resolveActor(ctx.prisma, req.user);
     const vendorId = actor.role === Role.VENDOR ? actor.vendorId : input.vendorId;
-    const ok = await ctx.sms.send(input.phone, input.message, await credentials.vendorSmsConfig(vendorId));
+    // No fallback here: the test must show whether these exact settings work.
+    const ok = await ctx.sms.send(input.phone, input.message, await credentials.vendorSmsConfig(vendorId), { fallbackToGlobal: false });
     if (!ok) throw new BadRequestError('Failed to send test SMS. Check the gateway settings and server logs.');
     return { ok: true, message: 'Test SMS sent successfully' };
   });

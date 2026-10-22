@@ -13,6 +13,7 @@ import { MailService } from './integrations/mail.service.js';
 import { DarajaClient } from './modules/mpesa/daraja.client.js';
 import { PrismClient } from './integrations/prism/prism.client.js';
 import { BillingService } from './modules/rentals/billing.service.js';
+import { MpesaPaymentService } from './modules/mpesa/mpesa.service.js';
 
 async function start(): Promise<void> {
   // ── Database ───────────────────────────────────────────────────────────────
@@ -56,10 +57,14 @@ async function start(): Promise<void> {
   // ── Rent billing: posts due rent charges shortly after boot, then hourly ──
   const stopBilling = new BillingService(ctx).startScheduler();
 
+  // ── M-Pesa: settles STK payments whose callback is late or lost ──────────
+  const stopStkReconciler = new MpesaPaymentService(ctx).startReconciler();
+
   // ── Graceful shutdown ──────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     logger.info(`${signal} received - shutting down`);
     stopBilling();
+    stopStkReconciler();
     ctx.io.close();
     await app.close();
     await prisma.$disconnect();

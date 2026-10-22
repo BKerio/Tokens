@@ -10,8 +10,8 @@ import type { PaymentStatusResult } from '@/types/api';
 
 type Phase = 'form' | 'waiting' | 'done';
 
-/** Each long-poll waits ~25s server-side; give the payer about two minutes in total. */
-const MAX_POLLS = 5;
+/** Each long-poll waits ~25s server-side; give the payer about two and a half minutes in total. */
+const MAX_POLLS = 6;
 
 /**
  * Lipa na M-Pesa: sends an STK push for a meter, then waits for Safaricom's
@@ -26,6 +26,25 @@ function BuyTokensPanel({ defaultMeter = '', defaultPhone = '' }: { defaultMeter
   const [error, setError] = useState('');
   const [prompt, setPrompt] = useState('');
   const [result, setResult] = useState<PaymentStatusResult | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [checkoutId, setCheckoutId] = useState('');
+
+  /** Long-polls until the payment settles or MAX_POLLS run out; a dropped poll is simply retried. */
+  const waitFor = async (checkoutRequestId: string) => {
+    setPhase('waiting');
+    let status: PaymentStatusResult = { status: 'PENDING' };
+    for (let i = 0; i < MAX_POLLS && status.status === 'PENDING'; i++) {
+      try {
+        status = await waitForPayment(checkoutRequestId);
+      } catch {
+        await new Promise((r) => setTimeout(r, 2_000));
+      }
+    }
+    setResult(status);
+    setPhase('done');
+    queryClient.invalidateQueries({ queryKey: ['me'] });
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -34,24 +53,22 @@ function BuyTokensPanel({ defaultMeter = '', defaultPhone = '' }: { defaultMeter
     if (!meter.trim()) return setError('Enter the meter number.');
     if (phone.trim().length < 9) return setError('Enter the M-Pesa phone number to charge.');
     if (!(value >= 1)) return setError('Enter an amount of at least KES 1.');
+    if (submitting) return;
 
+    // One prompt per tap: a second push while the first is on the phone fails with "Duplicated MSISDN".
+    setSubmitting(true);
+    let push;
     try {
-      const push = await stkPush({ phone: phone.trim(), amount: value, reference: meter.trim() });
-      setPrompt(push.customerMessage);
-      setPhase('waiting');
-
-      let status: PaymentStatusResult = { status: 'PENDING' };
-      for (let i = 0; i < MAX_POLLS && status.status === 'PENDING'; i++) {
-        status = await waitForPayment(push.checkoutRequestId);
-      }
-      setResult(status);
-      setPhase('done');
-      queryClient.invalidateQueries({ queryKey: ['me'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      push = await stkPush({ phone: phone.trim(), amount: value, reference: meter.trim() });
     } catch (err) {
-      setPhase('form');
       setError(errorMessage(err, 'Could not start the M-Pesa payment.'));
+      return;
+    } finally {
+      setSubmitting(false);
     }
+    setPrompt(push.customerMessage);
+    setCheckoutId(push.checkoutRequestId);
+    await waitFor(push.checkoutRequestId);
   };
 
   const reset = () => {
@@ -91,7 +108,9 @@ function BuyTokensPanel({ defaultMeter = '', defaultPhone = '' }: { defaultMeter
         )}
         {ok && result.tokens?.length ? (
           <>
-            <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Enter this token on your meter (also sent by SMS):</p>
+            <p className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>
+              {result.smsSent === false ? 'Enter this token on your meter. We could not SMS it, so note it down now:' : 'Enter this token on your meter (also sent by SMS):'}
+            </p>
             <TokenList tokens={result.tokens} />
           </>
         ) : ok ? (
@@ -105,7 +124,12 @@ function BuyTokensPanel({ defaultMeter = '', defaultPhone = '' }: { defaultMeter
         ) : (
           <p className="text-sm" style={{ color: 'var(--muted)' }}>{result.failureReason ?? 'The transaction failed. Please try again.'}</p>
         )}
-        <button className="btn btn-ghost" onClick={reset} style={{ alignSelf: 'flex-start' }}>Buy again</button>
+        <div className="flex gap-2 flex-wrap">
+          {result.status === 'PENDING' && checkoutId && (
+            <button className="btn btn-primary" onClick={() => waitFor(checkoutId)}>Check again</button>
+          )}
+          <button className="btn btn-ghost" onClick={reset}>Buy again</button>
+        </div>
       </div>
     );
   }
@@ -132,7 +156,9 @@ function BuyTokensPanel({ defaultMeter = '', defaultPhone = '' }: { defaultMeter
           ))}
         </div>
       </div>
-      <button className="btn btn-primary btn-lg" type="submit">Pay with M-Pesa</button>
+      <button className="btn btn-primary btn-lg" type="submit" disabled={submitting} aria-busy={submitting}>
+        {submitting ? <><AppLoader size={16} /> Sending M-Pesa prompt…</> : 'Pay with M-Pesa'}
+      </button>
     </form>
   );
 }

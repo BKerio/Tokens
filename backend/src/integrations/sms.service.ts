@@ -57,8 +57,13 @@ export class SmsService {
     };
   }
 
-  /** Sends one SMS. Never throws - returns false (and logs) on any failure. */
-  async send(phone: string, message: string, vendor?: VendorSmsConfig | null): Promise<boolean> {
+  /**
+   * Sends one SMS. Never throws - returns false (and logs) on any failure.
+   * When a vendor's own gateway rejects the message it is retried through the
+   * global gateway, so a bad vendor setting never stops a customer getting
+   * their token; pass `fallbackToGlobal: false` to test the vendor's settings alone.
+   */
+  async send(phone: string, message: string, vendor?: VendorSmsConfig | null, opts: { fallbackToGlobal?: boolean } = {}): Promise<boolean> {
     try {
       const enabled = vendor?.enabled ?? (await this.settings.get<boolean>('sms_enabled', true));
       if (enabled === false) {
@@ -68,57 +73,66 @@ export class SmsService {
 
       const msisdn = normalizeMsisdn(phone) ?? phone.replace(/\D/g, '');
       const cfg = await this.resolve(vendor);
+      if (await this.deliver(msisdn, message, cfg)) return true;
+      if (!vendor || opts.fallbackToGlobal === false) return false;
 
-      if (!cfg.apiKey || !cfg.partnerId || !cfg.shortcode || !cfg.apiUrl) {
-        this.log.error(
-          {
-            apiKeySet: !!cfg.apiKey,
-            partnerIdSet: !!cfg.partnerId,
-            shortcodeSet: !!cfg.shortcode,
-            provider: cfg.provider,
-          },
-          'SMS configuration is incomplete',
-        );
-        return false;
-      }
-
-      const payload = {
-        apikey: cfg.apiKey,
-        partnerID: cfg.partnerId,
-        message,
-        shortcode: cfg.shortcode,
-        mobile: msisdn,
-      };
-      const useJson = cfg.apiUrl.includes('advantasms.com') || cfg.provider === 'advanta';
-
-      const res = await fetch(cfg.apiUrl, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': useJson ? 'application/json' : 'application/x-www-form-urlencoded',
-        },
-        body: useJson
-          ? JSON.stringify(payload)
-          : new URLSearchParams({ ...payload, msisdn }).toString(),
-        signal: AbortSignal.timeout(15_000),
-      });
-
-      const text = await res.text();
-      let body: unknown;
-      try {
-        body = JSON.parse(text);
-      } catch {
-        body = undefined;
-      }
-      const success = this.indicatesSuccess(res.status, body);
-
-      this.log.info({ status: res.status, provider: cfg.provider, success, body: text.slice(0, 500) }, 'SMS provider response');
-      if (!success) this.log.error({ status: res.status, phone: msisdn }, 'SMS provider rejected message');
-      return success;
+      const global = await this.resolve(null);
+      if (JSON.stringify(global) === JSON.stringify(cfg)) return false;
+      this.log.warn({ phone: msisdn, vendorPartnerId: cfg.partnerId }, "Vendor's SMS gateway failed - retrying through the global gateway");
+      return await this.deliver(msisdn, message, global);
     } catch (err) {
       this.log.error({ err }, 'SMS send failed');
       return false;
     }
+  }
+
+  private async deliver(msisdn: string, message: string, cfg: ResolvedSmsConfig): Promise<boolean> {
+    if (!cfg.apiKey || !cfg.partnerId || !cfg.shortcode || !cfg.apiUrl) {
+      this.log.error(
+        {
+          apiKeySet: !!cfg.apiKey,
+          partnerIdSet: !!cfg.partnerId,
+          shortcodeSet: !!cfg.shortcode,
+          provider: cfg.provider,
+        },
+        'SMS configuration is incomplete',
+      );
+      return false;
+    }
+
+    const payload = {
+      apikey: cfg.apiKey,
+      partnerID: cfg.partnerId,
+      message,
+      shortcode: cfg.shortcode,
+      mobile: msisdn,
+    };
+    const useJson = cfg.apiUrl.includes('advantasms.com') || cfg.provider === 'advanta';
+
+    const res = await fetch(cfg.apiUrl, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': useJson ? 'application/json' : 'application/x-www-form-urlencoded',
+      },
+      body: useJson
+        ? JSON.stringify(payload)
+        : new URLSearchParams({ ...payload, msisdn }).toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const text = await res.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = undefined;
+    }
+    const success = this.indicatesSuccess(res.status, body);
+
+    this.log.info({ status: res.status, provider: cfg.provider, partnerId: cfg.partnerId, success, body: text.slice(0, 500) }, 'SMS provider response');
+    if (!success) this.log.error({ status: res.status, phone: msisdn }, 'SMS provider rejected message');
+    return success;
   }
 
   private indicatesSuccess(status: number, body: unknown): boolean {

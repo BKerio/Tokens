@@ -280,6 +280,8 @@ export interface PaymentStatusResult {
   failureReason?: string;
   tokens?: string[];
   vendError?: string | null;
+  /** Whether the token SMS reached the gateway (present with tokens). */
+  smsSent?: boolean;
   message?: string;
 }
 

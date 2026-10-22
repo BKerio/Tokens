@@ -116,6 +116,34 @@ export class DarajaClient {
     }
   }
 
+  /**
+   * STK Push Query: asks Daraja for the outcome of a push whose callback hasn't
+   * arrived. Settled pushes come back with ResultCode; one still on the payer's
+   * phone comes back as errorCode 500.001.1001 "The transaction is being processed".
+   */
+  async stkQuery(creds: DarajaCredentials, checkoutRequestId: string): Promise<DarajaResponse> {
+    try {
+      const { token, error } = await this.accessToken(creds.env, creds.consumerKey, creds.consumerSecret);
+      if (!token) return error!;
+      const timestamp = darajaTimestamp();
+      const res = await fetch(`${darajaBaseUrl(creds.env)}/mpesa/stkpushquery/v1/query`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          BusinessShortCode: creds.shortcode,
+          Password: Buffer.from(`${creds.shortcode}${creds.passkey}${timestamp}`).toString('base64'),
+          Timestamp: timestamp,
+          CheckoutRequestID: checkoutRequestId,
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      return ((await res.json().catch(() => null)) as DarajaResponse | null) ?? { errorMessage: 'Empty response', status: res.status };
+    } catch (err) {
+      this.log.error({ err, checkoutRequestId }, 'STK query error');
+      return { errorMessage: err instanceof Error ? err.message : 'M-Pesa query failed' };
+    }
+  }
+
   /** True when a Daraja response signals the push was not accepted. */
   static isError(res: DarajaResponse): boolean {
     return !!(res.errorCode || res.errorMessage || (res.ResponseCode !== undefined && String(res.ResponseCode) !== '0'));
