@@ -1,0 +1,885 @@
+// TokenPap - Prepaid Utility Token Vending Platform - Database Schema
+// Docs: https://pris.ly/d/prisma-schema
+//
+// Every table migrated from the legacy Laravel/MongoDB system carries a
+// nullable unique `legacy_mongo_id` so scripts/migrate-from-mongo.ts can be
+// re-run idempotently (upsert by the old ObjectId).
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN // Full access, incl. operator account management
+  ADMIN // Platform administrator - vendors, landlords, meters, config
+  VENDOR // Utility vendor (Individual or Company) - own meters/customers
+  LANDLORD // Property owner - own properties, hierarchy, meters
+  CUSTOMER // End consumer - signs in by phone OTP, buys tokens
+  LANDLORD_STAFF // Works for one landlord (see LandlordStaff for role + property scope)
+}
+
+// What a landlord's staff member may do (permission sets live in the API).
+enum LandlordStaffRole {
+  MANAGER // Runs assigned properties: units, tenants, leases, money, reports
+  CARETAKER // On-site: tenants and leases (view), records payments
+  ACCOUNTANT // Money: charges, payments, deposits, expenses, reversals, reports
+  VIEWER // Read-only
+}
+
+enum LeaseStatus {
+  ACTIVE
+  ENDED // Reached its end date
+  TERMINATED // Ended early by the landlord
+}
+
+enum BillingFrequency {
+  MONTHLY
+  QUARTERLY
+  SEMI_ANNUAL
+  ANNUAL
+}
+
+// Append-only rent ledger. Amounts are positive; a reversal is a new entry of
+// the same type with the amount negated (reversalOfId points at the original).
+enum LedgerEntryType {
+  RENT_CHARGE // Scheduled rent for a billing period
+  OTHER_CHARGE // Water, service charge, penalty, repairs billed to the tenant...
+  PAYMENT // Money received from the tenant against charges
+  CREDIT // Waiver / discount reducing what the tenant owes
+  DEPOSIT_RECEIVED // Security deposit held (not income)
+  DEPOSIT_REFUND // Deposit paid back to the tenant
+  DEPOSIT_APPLIED // Deposit used to settle charges (reduces both held deposit and arrears)
+  EXPENSE // Landlord's cost (repairs, utilities, fees) - property-level
+}
+
+enum PaymentMethod {
+  MPESA
+  CASH
+  BANK
+  CHEQUE
+  OTHER
+}
+
+enum AccountStatus {
+  ACTIVE
+  PENDING // Self-registered vendor awaiting admin approval
+  SUSPENDED
+  REJECTED
+}
+
+enum VendorType {
+  INDIVIDUAL
+  COMPANY
+}
+
+enum MeterStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+// Generic on/off status for customers, properties, units, tenants.
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PropertyType {
+  APARTMENT
+  ESTATE
+  COMMERCIAL
+  MIXED_USE
+  HOSTEL
+  OTHER
+}
+
+// How a unit's tenant pays rent.
+enum UnitPaymentMethod {
+  MPESA_PAYBILL
+  MPESA_TILL
+  BANK
+}
+
+enum PaymentChannel {
+  STK // M-Pesa Express (STK push) initiated from the portal
+  C2B // Safaricom C2B paybill confirmation
+  NCBA // NCBA paybill webhook
+}
+
+enum PaymentStatus {
+  PENDING // STK push sent, waiting for Safaricom's callback
+  CONFIRMED
+  FAILED
+}
+
+enum TokenType {
+  CREDIT
+  CLEAR_TAMPER
+  CLEAR_CREDIT
+  SET_MAX_OVERDRAFT
+}
+
+enum VendMode {
+  UNIT // amount entered is kWh/units, KES computed from price_per_unit
+  VALUE // amount entered is KES
+}
+
+enum TokenOwnerType {
+  VENDOR
+  LANDLORD
+  UNASSIGNED
+}
+
+enum TransactionStatus {
+  SUCCESS
+  FAILED
+}
+
+enum EnquiryStatus {
+  PENDING
+  REVIEWED
+  ARCHIVED
+}
+
+enum MpesaEnv {
+  SANDBOX
+  LIVE
+}
+
+enum MpesaTransactionType {
+  CUSTOMER_PAYBILL_ONLINE
+  CUSTOMER_BUYGOODS_ONLINE
+}
+
+enum ConfigValueType {
+  STRING
+  INTEGER
+  FLOAT
+  BOOLEAN
+  JSON
+}
+
+enum OtpPurpose {
+  CUSTOMER_LOGIN
+  PASSWORD_RESET
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User - every password-based account: platform admins, vendors, landlords.
+// (Customers sign in by phone OTP and live in their own table below.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  username     String        @unique
+  email        String        @unique
+  phone        String?
+  passwordHash String        @map("password_hash")
+  role         Role
+  status       AccountStatus @default(ACTIVE)
+  bio          String?       @db.Text
+  profileImage String?       @map("profile_image")
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendor            Vendor?
+  landlord          Landlord?
+  landlordStaff     LandlordStaff?
+  auditLogs         AuditLog[]
+  tokenTransactions TokenTransaction[]
+
+  @@index([role])
+  @@index([phone])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vendor - the business profile behind a VENDOR user.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Vendor {
+  id                String        @id @default(uuid())
+  businessName      String        @map("business_name")
+  address           String?
+  // Vendor's till / account number - also the left half of a paybill
+  // "TILL#METER" account reference and an alternative login identifier.
+  accountId         String        @unique @map("account_id")
+  paybill           String?
+  vendorType        VendorType    @map("vendor_type")
+  bankName          String?       @map("bank_name")
+  status            AccountStatus @default(ACTIVE)
+  // Relative path under UPLOAD_DIR, e.g. "vendor-logos/abc.png".
+  logoPath          String?       @map("logo_path")
+  // { primaryColor?, tagline?, showLogoInSidebar? }
+  dashboardSettings Json?         @map("dashboard_settings")
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  meters            Meter[]
+  customers         Customer[]
+  mpesaConfig       MpesaConfig?
+  smsConfig         SmsConfig?
+  tokenTransactions TokenTransaction[]
+
+  @@index([status])
+  @@map("vendors")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Landlord - the profile behind a LANDLORD user.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Landlord {
+  id             String        @id @default(uuid())
+  fullName       String        @map("full_name")
+  phone          String
+  // M-Pesa number, bank account or paybill the landlord is paid into.
+  paymentAccount String        @map("payment_account")
+  status         AccountStatus @default(ACTIVE)
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  meters            Meter[]
+  mpesaConfig       MpesaConfig?
+  properties        Property[]
+  units             PropertyUnit[]
+  tenants           LandlordTenant[]
+  tokenTransactions TokenTransaction[]
+  locations         PropertyLocation[]
+  leases            Lease[]
+  ledgerEntries     LedgerEntry[]
+  staff             LandlordStaff[]
+
+  @@map("landlords")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Meter - a prepaid STS meter. Assigned to a vendor and/or a landlord by an
+// admin; only the owning vendor sets price_per_unit. The STS key fields
+// (sgc/krn/ti/ea/ken) are per-meter fallbacks - see integrations/prism.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Meter {
+  id             String      @id @default(uuid())
+  // DRN - the meter number customers type into M-Pesa as the account ref.
+  meterNumber    String      @unique @map("meter_number")
+  type           String
+  initialReading Decimal     @default(0) @map("initial_reading") @db.Decimal(14, 3)
+  pricePerUnit   Decimal     @default(0) @map("price_per_unit") @db.Decimal(12, 2)
+  status         MeterStatus @default(ACTIVE)
+
+  sgc Int?
+  krn Int?
+  ti  Int?
+  ea  Int?
+  ken Int?
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendorId   String?   @map("vendor_id")
+  vendor     Vendor?   @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  landlordId String?   @map("landlord_id")
+  landlord   Landlord? @relation(fields: [landlordId], references: [id], onDelete: SetNull)
+
+  customers         Customer[]
+  unit              PropertyUnit?
+  tokenTransactions TokenTransaction[]
+
+  @@index([vendorId])
+  @@index([landlordId])
+  @@map("meters")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Customer - an end consumer attached to a meter. Signs in with a one-time
+// code sent to `phone` (no password).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Customer {
+  id      String       @id @default(uuid())
+  name    String
+  phone   String
+  email   String?
+  address String?
+  status  RecordStatus @default(ACTIVE)
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendorId String? @map("vendor_id")
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  meterId  String? @map("meter_id")
+  meter    Meter?  @relation(fields: [meterId], references: [id], onDelete: SetNull)
+
+  countyId       Int?          @map("county_id")
+  county         County?       @relation(fields: [countyId], references: [id], onDelete: SetNull)
+  constituencyId Int?          @map("constituency_id")
+  constituency   Constituency? @relation(fields: [constituencyId], references: [id], onDelete: SetNull)
+  wardId         Int?          @map("ward_id")
+  ward           Ward?         @relation(fields: [wardId], references: [id], onDelete: SetNull)
+
+  tokenTransactions TokenTransaction[]
+
+  @@index([phone])
+  @@index([vendorId])
+  @@index([meterId])
+  @@map("customers")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kenyan administrative locations (seeded from prisma/data/region.json).
+// Integer ids are kept identical to the legacy system's so migrated
+// customers keep pointing at the same county/constituency/ward.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model County {
+  id       Int     @id
+  name     String
+  isActive Boolean @default(true) @map("is_active")
+
+  constituencies Constituency[]
+  wards          Ward[]
+  customers      Customer[]
+  properties     Property[]
+
+  @@map("counties")
+}
+
+model Constituency {
+  id       Int     @id
+  name     String
+  isActive Boolean @default(true) @map("is_active")
+
+  countyId Int    @map("county_id")
+  county   County @relation(fields: [countyId], references: [id], onDelete: Cascade)
+
+  wards      Ward[]
+  customers  Customer[]
+  properties Property[]
+
+  @@index([countyId])
+  @@map("constituencies")
+}
+
+model Ward {
+  id       Int     @id
+  name     String
+  isActive Boolean @default(true) @map("is_active")
+
+  countyId       Int          @map("county_id")
+  county         County       @relation(fields: [countyId], references: [id], onDelete: Cascade)
+  constituencyId Int          @map("constituency_id")
+  constituency   Constituency @relation(fields: [constituencyId], references: [id], onDelete: Cascade)
+
+  customers  Customer[]
+  properties Property[]
+
+  @@index([constituencyId])
+  @@map("wards")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payment gateway configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Per-vendor OR per-landlord Daraja (M-Pesa) credentials. Admin-managed only.
+// Secrets are encrypted at rest (see shared/utils/crypto.ts) and only ever
+// returned to clients as a boolean "is set".
+model MpesaConfig {
+  id                String               @id @default(uuid())
+  consumerKeyEnc    String?              @map("consumer_key_enc") @db.Text
+  consumerSecretEnc String?              @map("consumer_secret_enc") @db.Text
+  passkeyEnc        String?              @map("passkey_enc") @db.Text
+  shortcode         String?
+  tillNo            String?              @map("till_no")
+  env               MpesaEnv             @default(SANDBOX)
+  callbackUrl       String?              @map("callback_url")
+  transactionType   MpesaTransactionType @default(CUSTOMER_BUYGOODS_ONLINE) @map("transaction_type")
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendorId   String?   @unique @map("vendor_id")
+  vendor     Vendor?   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  landlordId String?   @unique @map("landlord_id")
+  landlord   Landlord? @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+
+  @@map("mpesa_configs")
+}
+
+// Per-vendor SMS gateway override. Falls back to the global sms_* SystemConfig.
+model SmsConfig {
+  id        String  @id @default(uuid())
+  provider  String?
+  apiUrl    String? @map("api_url")
+  apiKeyEnc String? @map("api_key_enc") @db.Text
+  partnerId String? @map("partner_id")
+  shortcode String?
+  enabled   Boolean @default(true)
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendorId String @unique @map("vendor_id")
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("sms_configs")
+}
+
+// Global key/value settings (SMS gateway, global M-Pesa fallback, ...).
+// When isEncrypted, `value` holds ciphertext - see settings/system-config.service.ts.
+model SystemConfig {
+  key         String          @id
+  value       String?         @db.Text
+  type        ConfigValueType @default(STRING)
+  category    String          @default("general")
+  description String?
+  isEncrypted Boolean         @default(false) @map("is_encrypted")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("system_configs")
+}
+
+// STS vending parameters (vending_sgc, vending_krn, ...) that override the
+// per-meter values when active.
+model VendingSetting {
+  key         String          @id
+  value       String?
+  type        ConfigValueType @default(INTEGER)
+  description String?
+  isActive    Boolean         @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("vending_settings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payments & token transactions
+// ─────────────────────────────────────────────────────────────────────────────
+
+// One inbound payment. STK payments are created PENDING when the push is
+// sent (holding the meter account reference) and resolved by the callback;
+// C2B/NCBA payments arrive already CONFIRMED.
+model Payment {
+  id                 String         @id @default(uuid())
+  channel            PaymentChannel
+  status             PaymentStatus  @default(PENDING)
+  merchantRequestId  String?        @map("merchant_request_id")
+  checkoutRequestId  String?        @unique @map("checkout_request_id")
+  // Meter number (or "TILL#METER" for paybill) the payment was made against.
+  accountReference   String?        @map("account_reference")
+  phone              String
+  amount             Decimal        @db.Decimal(12, 2)
+  // M-Pesa receipt / paybill TransID - the idempotency key for webhooks.
+  mpesaReceiptNumber String?        @unique @map("mpesa_receipt_number")
+  resultCode         String?        @map("result_code")
+  resultDesc         String?        @map("result_desc")
+  payerName          String?        @map("payer_name")
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tokenTransactions TokenTransaction[]
+
+  @@index([accountReference])
+  @@index([status])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+// Every token issued (or attempted) through Prism - manual vends from the
+// portal and automatic vends from payments alike.
+model TokenTransaction {
+  id                    String            @id @default(uuid())
+  status                TransactionStatus
+  tokenType             TokenType         @default(CREDIT) @map("token_type")
+  vendMode              VendMode?         @map("vend_mode")
+  ownerType             TokenOwnerType?   @map("owner_type")
+  amount                Decimal?          @db.Decimal(12, 2)
+  units                 Decimal?          @db.Decimal(14, 3)
+  tokens                String[]
+  controlIndex          Int?              @map("control_index")
+  controlValue          Int?              @map("control_value")
+  // Caller-supplied reference for manual vends (e.g. a cash receipt no.).
+  externalTransactionId String?           @map("external_transaction_id")
+  transactionTime       DateTime?         @map("transaction_time")
+  sendSms               Boolean           @default(false) @map("send_sms")
+  smsSent               Boolean           @default(false) @map("sms_sent")
+  phone                 String?
+  prismMessageId        String?           @map("prism_message_id")
+  description           String?           @db.Text
+  // Kept so history stays readable if the meter is later deleted.
+  meterNumberSnapshot   String?           @map("meter_number_snapshot")
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  meterId     String?   @map("meter_id")
+  meter       Meter?    @relation(fields: [meterId], references: [id], onDelete: SetNull)
+  vendorId    String?   @map("vendor_id")
+  vendor      Vendor?   @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  landlordId  String?   @map("landlord_id")
+  landlord    Landlord? @relation(fields: [landlordId], references: [id], onDelete: SetNull)
+  customerId  String?   @map("customer_id")
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  paymentId   String?   @map("payment_id")
+  payment     Payment?  @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  actorUserId String?   @map("actor_user_id")
+  actorUser   User?     @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([meterId, createdAt])
+  @@index([vendorId, createdAt])
+  @@index([landlordId, createdAt])
+  @@index([paymentId])
+  @@index([createdAt])
+  @@map("token_transactions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Landlord properties and their Zone → Route → Street → Unit hierarchy.
+// Deleting a node cascades to everything beneath it (and its tenants).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Property {
+  id           String       @id @default(uuid())
+  // Landlord's full name, denormalized for display.
+  ownerName    String       @map("owner_name")
+  name         String
+  propertyType PropertyType @map("property_type")
+  noOfUnits    Int          @map("no_of_units")
+  // Street address / directions.
+  location     String
+  status       RecordStatus @default(ACTIVE)
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  landlordId     String            @map("landlord_id")
+  landlord       Landlord          @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+  // Portfolio grouping (Nairobi, Nakuru...); `location` above stays the street address.
+  locationId     String?           @map("location_id")
+  locationGroup  PropertyLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  // Administrative location (seeded from prisma/data/region.json).
+  countyId       Int?              @map("county_id")
+  county         County?           @relation(fields: [countyId], references: [id], onDelete: SetNull)
+  constituencyId Int?              @map("constituency_id")
+  constituency   Constituency?     @relation(fields: [constituencyId], references: [id], onDelete: SetNull)
+  wardId         Int?              @map("ward_id")
+  ward           Ward?             @relation(fields: [wardId], references: [id], onDelete: SetNull)
+
+  units         PropertyUnit[]
+  tenants       LandlordTenant[]
+  leases        Lease[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([landlordId])
+  @@index([locationId])
+  @@index([countyId])
+  @@map("properties")
+}
+
+// A landlord's area for grouping properties and reports, e.g. Nairobi, Nakuru.
+model PropertyLocation {
+  id          String  @id @default(uuid())
+  name        String
+  county      String?
+  description String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  landlordId String   @map("landlord_id")
+  landlord   Landlord @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+
+  properties Property[]
+
+  @@unique([landlordId, name])
+  @@map("property_locations")
+}
+
+// A rentable unit of a property. A meter can be linked to at most one unit.
+model PropertyUnit {
+  id         String       @id @default(uuid())
+  name       String
+  unitNumber String?      @map("unit_number")
+  status     RecordStatus @default(ACTIVE)
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  landlordId    String   @map("landlord_id")
+  landlord      Landlord @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+  propertyId    String   @map("property_id")
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  meterId       String?  @unique @map("meter_id")
+  meter         Meter?   @relation(fields: [meterId], references: [id], onDelete: SetNull)
+  // Defaults offered when a lease is created for this unit.
+  monthlyRent   Decimal? @map("monthly_rent") @db.Decimal(12, 2)
+  depositAmount Decimal? @map("deposit_amount") @db.Decimal(12, 2)
+
+  // Where this unit's tenant pays rent. paymentNumber is the paybill, till or
+  // bank account number; paymentAccount is the account no. to enter on a paybill.
+  paymentMethod      UnitPaymentMethod? @map("payment_method")
+  paymentNumber      String?            @map("payment_number")
+  paymentAccount     String?            @map("payment_account")
+  paymentBank        String?            @map("payment_bank")
+  paymentAccountName String?            @map("payment_account_name")
+
+  tenants       LandlordTenant[]
+  leases        Lease[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([propertyId])
+  @@map("property_units")
+}
+
+// A landlord's tenant, optionally attached to one unit of a property.
+model LandlordTenant {
+  id     String       @id @default(uuid())
+  name   String
+  phone  String
+  email  String?
+  status RecordStatus @default(ACTIVE)
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  landlordId String        @map("landlord_id")
+  landlord   Landlord      @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+  propertyId String        @map("property_id")
+  property   Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId     String?       @map("unit_id")
+  unit       PropertyUnit? @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  idNumber   String?       @map("id_number")
+
+  leases        Lease[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([landlordId])
+  @@index([propertyId])
+  @@map("landlord_tenants")
+}
+
+// A tenancy of one unit. At most one ACTIVE lease per unit (partial unique
+// index in the migration). The billing job posts RENT_CHARGE entries on
+// nextBillingDate and advances it.
+model Lease {
+  id   String @id @default(uuid())
+  // Short unique reference - shown on receipts and used as the paybill account no.
+  code String @unique
+
+  rentAmount       Decimal          @map("rent_amount") @db.Decimal(12, 2)
+  depositAmount    Decimal          @default(0) @map("deposit_amount") @db.Decimal(12, 2)
+  billingFrequency BillingFrequency @default(MONTHLY) @map("billing_frequency")
+  // Day of the month rent falls due (1-28).
+  dueDay           Int              @map("due_day")
+  startDate        DateTime         @map("start_date") @db.Date
+  endDate          DateTime?        @map("end_date") @db.Date
+  status           LeaseStatus      @default(ACTIVE)
+  // Start of the next period to bill; null once the lease has no more periods.
+  nextBillingDate  DateTime?        @map("next_billing_date") @db.Date
+  notes            String?          @db.Text
+
+  terminatedAt      DateTime? @map("terminated_at")
+  terminationReason String?   @map("termination_reason")
+  createdById       String?   @map("created_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  landlordId String         @map("landlord_id")
+  landlord   Landlord       @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+  propertyId String         @map("property_id")
+  property   Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId     String         @map("unit_id")
+  unit       PropertyUnit   @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  tenantId   String         @map("tenant_id")
+  tenant     LandlordTenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([landlordId, status])
+  @@index([unitId])
+  @@index([status, nextBillingDate])
+  @@map("leases")
+}
+
+// One money event. Never updated or deleted - corrections are reversals.
+model LedgerEntry {
+  id     String          @id @default(uuid())
+  type   LedgerEntryType
+  // Positive for normal entries; negative only on reversal entries.
+  amount Decimal         @db.Decimal(12, 2)
+
+  entryDate   DateTime       @map("entry_date") @db.Date
+  periodStart DateTime?      @map("period_start") @db.Date
+  periodEnd   DateTime?      @map("period_end") @db.Date
+  dueDate     DateTime?      @map("due_date") @db.Date
+  method      PaymentMethod?
+  reference   String?
+  category    String?
+  description String?
+
+  // `${leaseId}:${periodStart}` on scheduled rent - makes the billing job idempotent.
+  billingKey   String?      @unique @map("billing_key")
+  reversalOfId String?      @unique @map("reversal_of_id")
+  reversalOf   LedgerEntry? @relation("LedgerReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy   LedgerEntry? @relation("LedgerReversal")
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  landlordId String          @map("landlord_id")
+  landlord   Landlord        @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+  propertyId String          @map("property_id")
+  property   Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId     String?         @map("unit_id")
+  unit       PropertyUnit?   @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  leaseId    String?         @map("lease_id")
+  lease      Lease?          @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+  tenantId   String?         @map("tenant_id")
+  tenant     LandlordTenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([landlordId, entryDate])
+  @@index([leaseId])
+  @@index([propertyId, entryDate])
+  @@map("ledger_entries")
+}
+
+// A user who works for a landlord with a limited role, optionally only on
+// some properties.
+model LandlordStaff {
+  id            String            @id @default(uuid())
+  staffRole     LandlordStaffRole @map("staff_role")
+  allProperties Boolean           @default(true) @map("all_properties")
+  propertyIds   String[]          @default([]) @map("property_ids")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  landlordId String   @map("landlord_id")
+  landlord   Landlord @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+  userId     String   @unique @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([landlordId])
+  @@map("landlord_staff")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public contact enquiries from the landing page.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ContactEnquiry {
+  id            String        @id @default(uuid())
+  firstName     String        @map("first_name")
+  lastName      String        @map("last_name")
+  email         String
+  phone         String
+  city          String
+  premisesType  String        @map("premises_type")
+  residenceType String        @map("residence_type")
+  meterTypes    String[]      @map("meter_types")
+  mainMeterType String        @map("main_meter_type")
+  message       String        @db.Text
+  status        EnquiryStatus @default(PENDING)
+
+  legacyMongoId String? @unique @map("legacy_mongo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("contact_enquiries")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One-time codes (customer login, password reset). Only a hash of the code is
+// stored; one live code per (purpose, identifier).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Otp {
+  id         String     @id @default(uuid())
+  purpose    OtpPurpose
+  // Normalized phone (2547…) or lower-cased email.
+  identifier String
+  codeHash   String     @map("code_hash")
+  attempts   Int        @default(0)
+  expiresAt  DateTime   @map("expires_at")
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  @@unique([purpose, identifier])
+  @@map("otps")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AuditLog - every create/update/delete/login across the platform. userId is
+// null for system-originated events (payment webhooks, automatic vends).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String // CREATE, UPDATE, DELETE, LOGIN, LOGIN_FAILED, APPROVE, REJECT, VEND
+  subjectType String   @map("subject_type") // USER, VENDOR, LANDLORD, METER, CUSTOMER, ...
+  subjectId   String   @map("subject_id")
+  summary     String?
+  oldValues   Json?    @map("old_values")
+  newValues   Json?    @map("new_values")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  userId String? @map("user_id")
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([subjectType, subjectId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
