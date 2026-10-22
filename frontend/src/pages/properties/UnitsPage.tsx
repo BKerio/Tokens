@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DoorOpen, Eye, Gauge, Home, LayoutGrid, List, MapPin, Minus, Plus, Trash2, Wallet } from 'lucide-react';
-import { applyPaymentAccount, createUnit, createUnitsBulk, deleteUnit, getPropertyUnits, listProperties } from '@/api/properties';
+import { DoorOpen, Eye, Home, MapPin, Minus, Plus, Trash2, Wallet } from 'lucide-react';
+import { applyPaymentAccount, assignUnitMeter, createUnit, createUnitsBulk, deleteUnit, getPropertyUnits, listProperties, updateUnit } from '@/api/properties';
 import { errorMessage } from '@/api/client';
 import { useLandlordAccess } from '@/hooks/useLandlordAccess';
 import { confirmDialog, notify } from '@/lib/alert';
@@ -12,7 +12,7 @@ import { EmptyState, LoadingBlock, PageHeader, SearchInput } from '@/components/
 import { fmtKes } from '@/lib/format';
 import type { PropertyUnit, UnitOccupancy } from '@/types/api';
 import LeaseFormModal from '@/pages/rentals/LeaseFormModal';
-import { PaymentAccountFields, PaymentChip, emptyDraft, paymentError, paymentSummary, toPayment, type PaymentDraft } from './paymentAccount';
+import { PaymentAccountFields, PaymentChip, emptyDraft, paymentError, toPayment, type PaymentDraft } from './paymentAccount';
 import UnitSheet, { OCCUPANCY } from './UnitSheet';
 
 function useRefresh(propertyId: string) {
@@ -177,36 +177,46 @@ function occupantOf(u: PropertyUnit): { name: string; detail: string } | null {
   return { name: people[0]!.name, detail: people.length > 1 ? `+${people.length - 1} more` : kind };
 }
 
-function UnitCard({ u, onOpen, onDelete }: { u: PropertyUnit; onOpen: () => void; onDelete?: () => void }) {
-  const occ = OCCUPANCY[u.occupancy];
-  const person = occupantOf(u);
+const money = (n: number | null) => (n === null ? '' : String(n));
+
+/** Rent / deposit input that saves when you leave it. */
+function MoneyCell({ unit, field, onSaved, disabled }: { unit: PropertyUnit; field: 'monthlyRent' | 'depositAmount'; onSaved: () => void; disabled: boolean }) {
+  const value = unit[field];
+  const [draft, setDraft] = useState(money(value));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setDraft(money(value)), [value]);
+
+  const commit = async () => {
+    const next = draft.trim() === '' ? null : Number(draft);
+    if (next === value || (next !== null && Number.isNaN(next))) return;
+    setSaving(true);
+    try {
+      await updateUnit(unit.id, { [field]: next });
+      onSaved();
+    } catch (err) {
+      notify('error', 'Could not save', errorMessage(err));
+      setDraft(money(value));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className={`uc-card ${u.occupancy}${u.status === 'INACTIVE' ? ' inactive' : ''}`}>
-      <button type="button" className="uc-main" onClick={onOpen} aria-label={`View ${u.name}`}>
-        <span className="uc-top">
-          <span className="uc-name"><b>{u.name}</b><small>{u.unitNumber ? `No. ${u.unitNumber}` : 'No number'}{u.status === 'INACTIVE' ? ' · Inactive' : ''}</small></span>
-          <span className={`uc-occ ${u.occupancy}`}><occ.Icon size={13} /> {occ.label}</span>
-        </span>
-        <span className="uc-person">
-          {person ? (
-            <><span className="uc-av">{person.name.slice(0, 1).toUpperCase()}</span><span><b>{person.name}</b><small>{person.detail}</small></span></>
-          ) : (
-            <span className="uc-empty">{u.occupancyNote || (u.occupancy === 'VACANT' ? 'Ready for a tenant' : 'No one linked')}</span>
-          )}
-        </span>
-        <span className="uc-rent">
-          {u.monthlyRent ? <><b>{fmtKes(u.monthlyRent)}</b><small>/mo{u.depositAmount ? ` · deposit ${fmtKes(u.depositAmount)}` : ''}</small></> : <small className="uc-missing">No rent set</small>}
-        </span>
-        <span className="uc-foot">
-          <span className={u.payment ? '' : 'warn'}><Wallet size={13} /> {u.payment ? paymentSummary(u.payment).title : 'No payment account'}</span>
-          <span className={u.meterNumber ? '' : 'muted'}><Gauge size={13} /> {u.meterNumber ?? 'No meter'}</span>
-        </span>
-      </button>
-      <span className="uc-actions">
-        <button type="button" className="uc-view" onClick={onOpen}><Eye size={14} /> View</button>
-        {onDelete && <button type="button" className="uc-del" title="Delete unit" onClick={onDelete}><Trash2 size={14} /></button>}
-      </span>
-    </div>
+    <span className="ut-money">
+      <span>KES</span>
+      <input
+        className="mono"
+        style={{ opacity: saving ? 0.6 : 1 }}
+        inputMode="decimal"
+        placeholder="-"
+        disabled={disabled}
+        aria-label={`${field === 'monthlyRent' ? 'Monthly rent' : 'Deposit'} for ${unit.name}`}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value.replace(/[^\d.]/g, ''))}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      />
+    </span>
   );
 }
 
@@ -219,10 +229,6 @@ function UnitsPage() {
   const [leaseFor, setLeaseFor] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [search, setSearch] = useState('');
-  const [layout, setLayout] = useState<'grid' | 'list'>(() => {
-    try { return localStorage.getItem('units-layout') === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
-  });
-  const switchLayout = (l: 'grid' | 'list') => { setLayout(l); try { localStorage.setItem('units-layout', l); } catch { /* ignore */ } };
 
   const { data: properties = [], isLoading: propsLoading } = useQuery({ queryKey: ['properties', ''], queryFn: () => listProperties() });
   const propertyId = params.get('property') ?? '';
@@ -232,6 +238,11 @@ function UnitsPage() {
 
   const { data, isLoading } = useQuery({ queryKey: ['property-units', propertyId], queryFn: () => getPropertyUnits(propertyId), enabled: !!propertyId });
   const refresh = useRefresh(propertyId);
+  const assign = useMutation({
+    mutationFn: ({ id, meterId }: { id: string; meterId: string | null }) => assignUnitMeter(id, meterId),
+    onSuccess: () => { refresh(); notify('success', 'Meter link updated'); },
+    onError: (err) => notify('error', 'Could not link meter', errorMessage(err)),
+  });
   const remove = useMutation({
     mutationFn: deleteUnit,
     onSuccess: () => { refresh(); notify('success', 'Unit deleted'); },
@@ -310,7 +321,7 @@ function UnitsPage() {
                 </p>
               </div>
               <div className="ub-rate" aria-label={`${occupancyRate}% occupied`}>
-                <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" className="track" /><circle cx="18" cy="18" r="15.9" className="fill" strokeDasharray={`${occupancyRate} 100`} /></svg>
+                <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" className="track" />{occupancyRate > 0 && <circle cx="18" cy="18" r="15.9" className="fill" strokeDasharray={`${occupancyRate} 100`} />}</svg>
                 <span><b>{occupancyRate}%</b><small>occupied</small></span>
               </div>
             </div>
@@ -348,44 +359,65 @@ function UnitsPage() {
                   <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>{label}</button>
                 ))}
               </div>
-              <div className="flex items-center gap-2">
-                <SearchInput value={search} onChange={setSearch} placeholder="Search unit, person or meter…" />
-                <div className="seg" aria-label="Layout">
-                  <button className={layout === 'grid' ? 'on' : ''} onClick={() => switchLayout('grid')} title="Cards"><LayoutGrid size={15} /></button>
-                  <button className={layout === 'list' ? 'on' : ''} onClick={() => switchLayout('list')} title="List"><List size={15} /></button>
-                </div>
-              </div>
+              <SearchInput value={search} onChange={setSearch} placeholder="Search unit, person or meter…" />
             </div>
 
             {units.length === 0 ? (
               <EmptyState icon={<DoorOpen size={28} />} title="No units yet" action={manage ? <button className="btn btn-primary btn-sm" onClick={() => setDialog('add')}>Add units</button> : undefined} />
             ) : shown.length === 0 ? (
               <EmptyState title="No units match" hint="Try another filter or search." />
-            ) : layout === 'grid' ? (
-              <div className="uc-grid">
-                {shown.map((u) => (
-                  <UnitCard key={u.id} u={u} onOpen={() => setViewing(u.id)} onDelete={manage && !u.activeLease ? () => askDelete(u) : undefined} />
-                ))}
-              </div>
             ) : (
               <div className="tbl-wrap">
-                <table className="tbl un-table">
-                  <thead><tr>{['Unit', 'Status', 'Occupant', 'Rent /mo', 'Payment account', 'Meter', ''].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                <table className="tbl un-table ut-table">
+                  <thead><tr>{['Unit', 'Status & occupant', 'Rent /mo', 'Deposit', 'Payment account', 'Meter', ''].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                   <tbody>
                     {shown.map((u) => {
                       const occ = OCCUPANCY[u.occupancy];
                       const person = occupantOf(u);
                       return (
-                        <tr key={u.id} className={u.status === 'INACTIVE' ? 'un-inactive' : ''} onClick={() => setViewing(u.id)} style={{ cursor: 'pointer' }}>
-                          <td><span className="rn-strong">{u.name}</span><span className="rn-sub">{u.unitNumber ? `No. ${u.unitNumber}` : 'No number'}</span></td>
-                          <td><span className={`uc-occ ${u.occupancy}`}><occ.Icon size={13} /> {occ.label}</span></td>
-                          <td>{person ? <><span className="rn-strong">{person.name}</span><span className="rn-sub">{person.detail}</span></> : <span className="rn-muted">-</span>}</td>
-                          <td className="mono">{u.monthlyRent ? fmtKes(u.monthlyRent) : '-'}</td>
-                          <td>{u.payment ? <PaymentChip payment={u.payment} /> : <span className="uc-missing">Not set</span>}</td>
-                          <td className="mono">{u.meterNumber ?? '-'}</td>
-                          <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                            <button className="uc-view" onClick={() => setViewing(u.id)}><Eye size={14} /> View</button>
-                            {manage && !u.activeLease && <button className="icon-btn" title="Delete unit" onClick={() => askDelete(u)}><Trash2 size={14} /></button>}
+                        <tr key={u.id} className={`ut-row ${u.occupancy}${u.status === 'INACTIVE' ? ' un-inactive' : ''}`}>
+                          <td>
+                            <button type="button" className="ut-unit" onClick={() => setViewing(u.id)}>
+                              <b>{u.name}</b><small>{u.unitNumber ? `No. ${u.unitNumber}` : 'No number'}{u.status === 'INACTIVE' ? ' · Inactive' : ''}</small>
+                            </button>
+                          </td>
+                          <td>
+                            <span className="ut-occ">
+                              <span className={`uc-occ ${u.occupancy}`}><occ.Icon size={13} /> {occ.label}</span>
+                              {person
+                                ? <span className="ut-person"><span className="uc-av">{person.name.slice(0, 1).toUpperCase()}</span><span><b>{person.name}</b><small>{person.detail}</small></span></span>
+                                : u.occupancyNote && <small className="ut-note">{u.occupancyNote}</small>}
+                            </span>
+                          </td>
+                          <td><MoneyCell unit={u} field="monthlyRent" onSaved={refresh} disabled={!manage} /></td>
+                          <td><MoneyCell unit={u} field="depositAmount" onSaved={refresh} disabled={!manage} /></td>
+                          <td>
+                            {u.payment ? (
+                              <button type="button" className="un-pay-btn" onClick={() => setViewing(u.id)} title="Change payment account"><PaymentChip payment={u.payment} /></button>
+                            ) : manage ? (
+                              <button type="button" className="un-pay-add" onClick={() => setViewing(u.id)}><Plus size={14} /> Add account</button>
+                            ) : <span className="rn-muted">Not set</span>}
+                          </td>
+                          <td>
+                            <select
+                              className="eoc-select un-meter"
+                              value={u.meterId ?? ''}
+                              disabled={!manage || assign.isPending}
+                              onChange={(e) => assign.mutate({ id: u.id, meterId: e.target.value || null })}
+                              aria-label={`Meter for ${u.name}`}
+                            >
+                              <option value="">No meter</option>
+                              {data.assignedMeters.map((m) => {
+                                const on = unitsByMeter.get(m.id);
+                                return <option key={m.id} value={m.id}>{m.meterNumber}{on && on !== u.name ? ` (on ${on})` : ''}</option>;
+                              })}
+                            </select>
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <span className="ut-actions">
+                              <button type="button" className="uc-view" onClick={() => setViewing(u.id)}><Eye size={14} /> View</button>
+                              {manage && !u.activeLease && <button type="button" className="uc-del" title="Delete unit" onClick={() => askDelete(u)}><Trash2 size={14} /></button>}
+                            </span>
                           </td>
                         </tr>
                       );

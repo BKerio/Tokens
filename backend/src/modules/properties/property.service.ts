@@ -441,9 +441,11 @@ export class PropertyService {
         await tx.customer.updateMany({ where: { unitId: id, id: { notIn: customerIds } }, data: { unitId: null } });
         if (customerIds.length) await tx.customer.updateMany({ where: { id: { in: customerIds } }, data: { unitId: id, meterId: current.meterId } });
       }
+      const linksSomeone = (tenantIds?.length ?? 0) + (customerIds?.length ?? 0) > 0;
+      const occupancy = fields.occupancy ?? (linksSomeone && current.occupancy === UnitOccupancy.VACANT ? UnitOccupancy.OCCUPIED : undefined);
       return tx.propertyUnit.update({
         where: { id },
-        data: { ...fields, ...(payment !== undefined ? paymentColumns(payment) : {}) },
+        data: { ...fields, ...(occupancy ? { occupancy } : {}), ...(payment !== undefined ? paymentColumns(payment) : {}) },
         include: UNIT_INCLUDE,
       });
     });
@@ -477,6 +479,11 @@ export class PropertyService {
   }
 
   // ── Customers (token buyers in a landlord's units) ─────────────────────────
+
+  /** Linking someone to an empty unit means it is now occupied. */
+  private async occupy(unitId: string | null | undefined) {
+    if (unitId) await this.app.prisma.propertyUnit.updateMany({ where: { id: unitId, occupancy: UnitOccupancy.VACANT }, data: { occupancy: UnitOccupancy.OCCUPIED } });
+  }
 
   /** Staff scoped to some properties only see customers linked to units in them. */
   async listCustomers(landlordId: string, scopeIds?: string[]) {
@@ -519,6 +526,7 @@ export class PropertyService {
       },
       select: CUSTOMER_SELECT,
     });
+    await this.occupy(customer.unitId);
     await this.app.auditLog.record({ actorId, action: 'CREATE', subjectType: 'CUSTOMER', subjectId: customer.id, summary: `Added customer ${customer.name}` });
     return customer;
   }
@@ -536,6 +544,7 @@ export class PropertyService {
       data: { ...rest, ...(phone ? { phone: normalizeMsisdn(phone) ?? phone } : {}), ...link },
       select: CUSTOMER_SELECT,
     });
+    if (unitId) await this.occupy(customer.unitId);
     await this.app.auditLog.record({
       actorId, action: 'UPDATE', subjectType: 'CUSTOMER', subjectId: id, summary: `Updated customer ${customer.name}`, oldValues: before, newValues: customer,
     });
@@ -595,6 +604,7 @@ export class PropertyService {
         status: input.status ?? RecordStatus.ACTIVE,
       },
     });
+    await this.occupy(tenant.unitId);
     await this.app.auditLog.record({ actorId, action: 'CREATE', subjectType: 'TENANT', subjectId: tenant.id, summary: `Added tenant ${tenant.name}` });
     return presentTenant(tenant);
   }
@@ -615,6 +625,7 @@ export class PropertyService {
     const data = { ...input, ...(input.propertyId && input.propertyId !== tenant.propertyId && input.unitId === undefined ? { unitId: null } : {}) };
 
     const updated = await this.app.prisma.landlordTenant.update({ where: { id }, data });
+    if (input.unitId) await this.occupy(updated.unitId);
     await this.app.auditLog.record({ actorId, action: 'UPDATE', subjectType: 'TENANT', subjectId: id, summary: `Updated tenant ${updated.name}` });
     return presentTenant(updated);
   }
