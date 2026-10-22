@@ -1,7 +1,7 @@
 // Prisma Decimal columns (money, units) arrive as strings in JSON.
 export type Money = string | number;
 
-export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'VENDOR' | 'LANDLORD' | 'CUSTOMER' | 'LANDLORD_STAFF';
+export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'VENDOR' | 'LANDLORD' | 'CUSTOMER' | 'LANDLORD_STAFF' | 'TENANT';
 export type AccountStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
 export type VendorType = 'INDIVIDUAL' | 'COMPANY';
 export type MeterStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
@@ -28,6 +28,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   LANDLORD: 'Landlord',
   CUSTOMER: 'Customer',
   LANDLORD_STAFF: 'Landlord staff',
+  TENANT: 'Tenant',
 };
 
 export const TOKEN_TYPE_LABELS: Record<TokenType, string> = {
@@ -387,6 +388,9 @@ export interface LandlordCustomer {
   meterId: string | null;
   unit: { id: string; name: string; property: { id: string; name: string } } | null;
   meter: { meterNumber: string } | null;
+  /** May sign in to the customer portal. */
+  portalAccess: boolean;
+  portalInvitedAt: string | null;
 }
 
 export interface Tenant {
@@ -398,6 +402,9 @@ export interface Tenant {
   status: RecordStatus;
   unitId: string | null;
   propertyId: string;
+  /** May sign in to the tenant portal. */
+  portalAccess?: boolean;
+  portalInvitedAt?: string | null;
   /** Present on the landlord's tenant directory. */
   propertyName?: string;
   unitName?: string | null;

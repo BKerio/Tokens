@@ -84,13 +84,16 @@ export async function deleteUnit(id: string): Promise<void> {
   await api.delete(`/landlord/units/${id}`);
 }
 
+/** Portal-account options on the tenant / customer forms. `invited` says whether the welcome SMS went out. */
+export interface PortalOptions { portalAccess?: boolean; sendInvite?: boolean }
+
 export async function createTenant(data: {
   propertyId: string; name: string; phone: string; email?: string | null; idNumber?: string | null; unitId?: string | null; status?: RecordStatus;
-}): Promise<Tenant> {
+} & PortalOptions): Promise<Tenant & { invited?: boolean }> {
   return (await api.post('/landlord/tenants', data)).data.data;
 }
 
-export async function updateTenant(id: string, data: { name?: string; phone?: string; email?: string | null; idNumber?: string | null; propertyId?: string; unitId?: string | null; status?: RecordStatus }): Promise<Tenant> {
+export async function updateTenant(id: string, data: { name?: string; phone?: string; email?: string | null; idNumber?: string | null; propertyId?: string; unitId?: string | null; status?: RecordStatus } & PortalOptions): Promise<Tenant & { invited?: boolean }> {
   return (await api.patch(`/landlord/tenants/${id}`, data)).data.data;
 }
 
@@ -114,14 +117,16 @@ export interface LandlordCustomerInput {
   email?: string | null;
   unitId?: string | null;
   status?: RecordStatus;
+  portalAccess?: boolean;
+  sendInvite?: boolean;
 }
 
 /** Linking a unit means the customer buys tokens for that unit's meter. */
-export async function createLandlordCustomer(data: LandlordCustomerInput): Promise<LandlordCustomer> {
+export async function createLandlordCustomer(data: LandlordCustomerInput): Promise<LandlordCustomer & { invited?: boolean }> {
   return (await api.post('/landlord/customers', data)).data.data;
 }
 
-export async function updateLandlordCustomer(id: string, data: Partial<LandlordCustomerInput>): Promise<LandlordCustomer> {
+export async function updateLandlordCustomer(id: string, data: Partial<LandlordCustomerInput>): Promise<LandlordCustomer & { invited?: boolean }> {
   return (await api.patch(`/landlord/customers/${id}`, data)).data.data;
 }
 

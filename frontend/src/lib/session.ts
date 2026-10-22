@@ -10,6 +10,7 @@ export function homePath(role: Role | undefined | null): string {
     case 'LANDLORD': return '/landlord';
     case 'LANDLORD_STAFF': return '/landlord/rent';
     case 'CUSTOMER': return '/customer';
+    case 'TENANT': return '/tenant';
     default: return '/dashboard';
   }
 }

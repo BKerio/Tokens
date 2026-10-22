@@ -72,6 +72,18 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
     return { ok: true, data: await auth.verifyCustomerOtp(phone, otp) };
   });
 
+  // ── Tenants: phone one-time code (once their landlord gives them access) ───
+  app.post('/tenant/send-otp', OTP_LIMIT, async (req) => {
+    const { phone } = parse(phoneSchema, req.body);
+    await auth.sendTenantOtp(phone);
+    return { ok: true, message: 'Code sent.' };
+  });
+
+  app.post('/tenant/verify-otp', VERIFY_LIMIT, async (req) => {
+    const { phone, otp } = parse(customerOtpSchema, req.body);
+    return { ok: true, data: await auth.verifyTenantOtp(phone, otp) };
+  });
+
   // ── Password reset (admins, vendors, landlords) ────────────────────────────
   app.post('/forgot-password/send-otp', OTP_LIMIT, async (req) => {
     const { identifier } = parse(identifierSchema, req.body);

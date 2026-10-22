@@ -55,6 +55,16 @@ export interface LandlordCustomerInput {
   email?: string | null;
   unitId?: string | null;
   status?: RecordStatus;
+  /** May sign in to the customer portal. */
+  portalAccess?: boolean;
+  /** Text them how to sign in (only when portal access is on). */
+  sendInvite?: boolean;
+}
+
+/** Portal-account options shared by the tenant and customer forms. */
+export interface PortalInput {
+  portalAccess?: boolean;
+  sendInvite?: boolean;
 }
 
 const UNIT_INCLUDE = {
@@ -125,7 +135,7 @@ function presentUnit(u: UnitRow, sources?: PaymentSource[]) {
 }
 
 const CUSTOMER_SELECT = {
-  id: true, name: true, phone: true, email: true, status: true, createdAt: true, unitId: true, meterId: true,
+  id: true, name: true, phone: true, email: true, status: true, createdAt: true, unitId: true, meterId: true, portalAccess: true, portalInvitedAt: true,
   unit: { select: { id: true, name: true, property: { select: { id: true, name: true } } } },
   meter: { select: { meterNumber: true } },
 } satisfies Prisma.CustomerSelect;
@@ -140,6 +150,8 @@ function presentTenant(t: LandlordTenant) {
     status: t.status,
     unitId: t.unitId,
     propertyId: t.propertyId,
+    portalAccess: t.portalAccess,
+    portalInvitedAt: t.portalInvitedAt,
   };
 }
 
@@ -544,19 +556,21 @@ export class PropertyService {
         phone: normalizeMsisdn(input.phone) ?? input.phone,
         email: input.email ?? null,
         status: input.status ?? RecordStatus.ACTIVE,
+        portalAccess: input.portalAccess ?? true,
         unitId: unit?.id ?? null,
         meterId: unit?.meterId ?? null,
       },
       select: CUSTOMER_SELECT,
     });
     await this.occupy(customer.unitId);
-    await this.app.auditLog.record({ actorId, action: 'CREATE', subjectType: 'CUSTOMER', subjectId: customer.id, summary: `Added customer ${customer.name}` });
-    return customer;
+    await this.app.auditLog.record({ actorId, action: 'CREATE', subjectType: 'CUSTOMER', subjectId: customer.id, summary: `Added customer ${customer.name}${customer.portalAccess ? ' with a portal account' : ''}` });
+    const invited = customer.portalAccess && input.sendInvite ? await this.invite('customer', customer.id, landlordId) : false;
+    return { ...customer, invited };
   }
 
   async updateCustomer(landlordId: string, actorId: string, id: string, input: Partial<LandlordCustomerInput>) {
     const before = await this.ownedCustomer(landlordId, id);
-    const { unitId, phone, ...rest } = input;
+    const { unitId, phone, sendInvite, ...rest } = input;
     let link = {};
     if (unitId !== undefined) {
       const unit = unitId ? await this.ownedUnit(landlordId, unitId) : null;
@@ -569,9 +583,11 @@ export class PropertyService {
     });
     if (unitId) await this.occupy(customer.unitId);
     await this.app.auditLog.record({
-      actorId, action: 'UPDATE', subjectType: 'CUSTOMER', subjectId: id, summary: `Updated customer ${customer.name}`, oldValues: before, newValues: customer,
+      actorId, action: 'UPDATE', subjectType: 'CUSTOMER', subjectId: id, oldValues: before, newValues: customer,
+      summary: `Updated customer ${customer.name}${rest.portalAccess !== undefined && rest.portalAccess !== before.portalAccess ? (rest.portalAccess ? ' (portal access on)' : ' (portal access off)') : ''}`,
     });
-    return customer;
+    const invited = customer.portalAccess && sendInvite ? await this.invite('customer', customer.id, landlordId) : false;
+    return { ...customer, invited };
   }
 
   async removeCustomer(landlordId: string, actorId: string, id: string) {
@@ -611,7 +627,7 @@ export class PropertyService {
   async createTenant(
     landlordId: string,
     actorId: string,
-    input: { propertyId: string; name: string; phone: string; email?: string | null; idNumber?: string | null; unitId?: string | null; status?: RecordStatus },
+    input: { propertyId: string; name: string; phone: string; email?: string | null; idNumber?: string | null; unitId?: string | null; status?: RecordStatus } & PortalInput,
   ) {
     await this.get(landlordId, input.propertyId);
     await this.assertUnit(input.unitId, input.propertyId, landlordId);
@@ -625,18 +641,20 @@ export class PropertyService {
         email: input.email ?? null,
         idNumber: input.idNumber ?? null,
         status: input.status ?? RecordStatus.ACTIVE,
+        portalAccess: input.portalAccess ?? false,
       },
     });
     await this.occupy(tenant.unitId);
-    await this.app.auditLog.record({ actorId, action: 'CREATE', subjectType: 'TENANT', subjectId: tenant.id, summary: `Added tenant ${tenant.name}` });
-    return presentTenant(tenant);
+    await this.app.auditLog.record({ actorId, action: 'CREATE', subjectType: 'TENANT', subjectId: tenant.id, summary: `Added tenant ${tenant.name}${tenant.portalAccess ? ' with a portal account' : ''}` });
+    const invited = tenant.portalAccess && input.sendInvite ? await this.invite('tenant', tenant.id, landlordId) : false;
+    return { ...presentTenant(tenant), invited };
   }
 
   async updateTenant(
     landlordId: string,
     actorId: string,
     id: string,
-    input: { name?: string; phone?: string; email?: string | null; idNumber?: string | null; unitId?: string | null; propertyId?: string; status?: RecordStatus },
+    input: { name?: string; phone?: string; email?: string | null; idNumber?: string | null; unitId?: string | null; propertyId?: string; status?: RecordStatus } & PortalInput,
   ) {
     const tenant = await this.app.prisma.landlordTenant.findUnique({ where: { id } });
     if (!tenant) throw new NotFoundError('Tenant');
@@ -645,12 +663,49 @@ export class PropertyService {
     const propertyId = input.propertyId ?? tenant.propertyId;
     if (input.propertyId) await this.get(landlordId, input.propertyId);
     await this.assertUnit(input.unitId, propertyId, landlordId);
-    const data = { ...input, ...(input.propertyId && input.propertyId !== tenant.propertyId && input.unitId === undefined ? { unitId: null } : {}) };
+    const { sendInvite, ...fields } = input;
+    const data = { ...fields, ...(fields.propertyId && fields.propertyId !== tenant.propertyId && fields.unitId === undefined ? { unitId: null } : {}) };
 
     const updated = await this.app.prisma.landlordTenant.update({ where: { id }, data });
     if (input.unitId) await this.occupy(updated.unitId);
-    await this.app.auditLog.record({ actorId, action: 'UPDATE', subjectType: 'TENANT', subjectId: id, summary: `Updated tenant ${updated.name}` });
-    return presentTenant(updated);
+    const access = fields.portalAccess !== undefined && fields.portalAccess !== tenant.portalAccess ? (fields.portalAccess ? ' (portal access on)' : ' (portal access off)') : '';
+    await this.app.auditLog.record({ actorId, action: 'UPDATE', subjectType: 'TENANT', subjectId: id, summary: `Updated tenant ${updated.name}${access}` });
+    const invited = updated.portalAccess && sendInvite ? await this.invite('tenant', id, landlordId) : false;
+    return { ...presentTenant(updated), invited };
+  }
+
+  /**
+   * Texts a tenant or customer how to sign in to their portal. Returns whether
+   * the SMS went out (a failed SMS never fails the save).
+   */
+  private async invite(kind: 'tenant' | 'customer', id: string, landlordId: string): Promise<boolean> {
+    const landlord = await this.app.prisma.landlord.findUnique({ where: { id: landlordId }, select: { fullName: true } });
+    const url = `${this.app.config.FRONTEND_URL}/login`;
+    let phone: string;
+    let text: string;
+    if (kind === 'tenant') {
+      const t = await this.app.prisma.landlordTenant.findUniqueOrThrow({ where: { id }, include: { unit: { select: { name: true } }, property: { select: { name: true } } } });
+      phone = normalizeMsisdn(t.phone) ?? t.phone;
+      text = [
+        `Hi ${t.name.split(' ')[0]},`,
+        `${landlord?.fullName ?? 'Your landlord'} has set up your TokenPap tenant account${t.unit ? ` for ${t.unit.name}, ${t.property.name}` : ` at ${t.property.name}`}.`,
+        `See your rent, balance and statement at ${url} - choose "Tenant" and sign in with this phone number. We'll text you a code.`,
+      ].join(' ');
+    } else {
+      const c = await this.app.prisma.customer.findUniqueOrThrow({ where: { id }, include: { meter: { select: { meterNumber: true } } } });
+      phone = c.phone;
+      text = [
+        `Hi ${c.name.split(' ')[0]},`,
+        `${landlord?.fullName ?? 'Your landlord'} has set up your TokenPap account${c.meter ? ` for meter ${c.meter.meterNumber}` : ''}.`,
+        `Buy tokens and see your history at ${url} - choose "Customer" and sign in with this phone number. We'll text you a code.`,
+      ].join(' ');
+    }
+    const sent = await this.app.sms.send(phone, text).catch(() => false);
+    if (sent) {
+      if (kind === 'tenant') await this.app.prisma.landlordTenant.update({ where: { id }, data: { portalInvitedAt: new Date() } });
+      else await this.app.prisma.customer.update({ where: { id }, data: { portalInvitedAt: new Date() } });
+    }
+    return sent;
   }
 
   async removeTenant(landlordId: string, actorId: string, id: string) {

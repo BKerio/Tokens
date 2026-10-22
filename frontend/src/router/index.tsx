@@ -32,6 +32,7 @@ const UnitsPage = lazy(() => import('@/pages/properties/UnitsPage'));
 const PeoplePage = lazy(() => import('@/pages/properties/PeoplePage'));
 const AdminPropertyUnitsPage = lazy(() => import('@/pages/properties/AdminPropertyUnitsPage'));
 const CollectionsPage = lazy(() => import('@/pages/finance/CollectionsPage'));
+const TenantPortalPage = lazy(() => import('@/pages/tenant/TenantPortalPage'));
 const RentDashboardPage = lazy(() => import('@/pages/rentals/RentDashboardPage'));
 const LeasesPage = lazy(() => import('@/pages/rentals/LeasesPage'));
 const LedgerPage = lazy(() => import('@/pages/rentals/LedgerPage'));
@@ -113,6 +114,8 @@ export const router = createBrowserRouter([
       { path: 'landlord/reports', element: guard(LANDLORD_ORG, <RentReportsPage />) },
       { path: 'landlord/locations', element: guard(LANDLORD_ORG, <LocationsPage />) },
       { path: 'landlord/staff', element: guard(['LANDLORD'], <StaffPage />) },
+      // Tenant
+      { path: 'tenant', element: guard(['TENANT'], <TenantPortalPage />) },
       // Customer
       { path: 'customer', element: guard(['CUSTOMER'], <CustomerDashboard />) },
       { path: 'customer/buy', element: guard(['CUSTOMER'], <CustomerBuyPage />) },

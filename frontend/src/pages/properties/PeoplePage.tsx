@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DoorOpen, FileSignature, Home, Link2, Pencil, Phone, Trash2, UserPlus, UserRound, Users, Zap } from 'lucide-react';
+import { DoorOpen, FileSignature, Home, KeyRound, Link2, MessageSquare, Pencil, Phone, ShieldCheck, Trash2, UserPlus, UserRound, Users, Zap } from 'lucide-react';
 import {
   createLandlordCustomer, createTenant, deleteLandlordCustomer, deleteTenant, getPropertyUnits, listLandlordCustomers, listProperties, listTenants,
   updateLandlordCustomer, updateTenant,
@@ -27,6 +27,11 @@ function PersonSheet({ editing, onClose }: { editing: NonNullable<Editing>; onCl
   const [email, setEmail] = useState(existing?.email ?? '');
   const [idNumber, setIdNumber] = useState(editing.tenant?.idNumber ?? '');
   const [status, setStatus] = useState<RecordStatus>(existing?.status ?? 'ACTIVE');
+  // Portal account: tenants are off until the landlord turns it on; customers default on.
+  const hadAccess = editing.tenant?.portalAccess ?? editing.customer?.portalAccess ?? false;
+  const [portalAccess, setPortalAccess] = useState<boolean>(existing ? hadAccess : editing.kind === 'customer');
+  const [sendInvite, setSendInvite] = useState<boolean>(!existing || !hadAccess);
+  const invitedAt = editing.tenant?.portalInvitedAt ?? editing.customer?.portalInvitedAt ?? null;
   const [propertyId, setPropertyId] = useState(editing.tenant?.propertyId ?? editing.customer?.unit?.property.id ?? '');
   const [unitId, setUnitId] = useState(existing?.unitId ?? '');
   const [tried, setTried] = useState(false);
@@ -51,18 +56,21 @@ function PersonSheet({ editing, onClose }: { editing: NonNullable<Editing>; onCl
     if (Object.values(problems).some(Boolean)) return;
     setBusy(true);
     try {
-      const base = { name: name.trim(), phone: phone.trim(), email: email.trim() || null, status };
+      const base = { name: name.trim(), phone: phone.trim(), email: email.trim() || null, status, portalAccess, sendInvite: portalAccess && sendInvite };
+      let saved: { invited?: boolean };
       if (kind === 'tenant') {
         const data = { ...base, idNumber: idNumber.trim() || null, propertyId, unitId: unitId || null };
-        if (editing.tenant) await updateTenant(editing.tenant.id, data);
-        else await createTenant(data);
+        saved = editing.tenant ? await updateTenant(editing.tenant.id, data) : await createTenant(data);
       } else {
         const data = { ...base, unitId: unitId || null };
-        if (editing.customer) await updateLandlordCustomer(editing.customer.id, data);
-        else await createLandlordCustomer(data);
+        saved = editing.customer ? await updateLandlordCustomer(editing.customer.id, data) : await createLandlordCustomer(data);
       }
       for (const key of [['tenant-directory'], ['landlord-customers'], ['property-units']]) queryClient.invalidateQueries({ queryKey: key });
-      notify('success', existing ? `${name.trim()} updated` : `${kind === 'tenant' ? 'Tenant' : 'Customer'} added`, unit ? `Linked to ${unit.name}.` : undefined);
+      const detail = [
+        unit ? `Linked to ${unit.name}.` : '',
+        portalAccess && sendInvite ? (saved.invited ? 'Sign-in instructions sent by SMS.' : 'The welcome SMS could not be sent - they can still sign in with their phone.') : '',
+      ].filter(Boolean).join(' ');
+      notify(portalAccess && sendInvite && !saved.invited ? 'warning' : 'success', existing ? `${name.trim()} updated` : `${kind === 'tenant' ? 'Tenant' : 'Customer'} added`, detail || undefined);
       onClose();
     } catch (err) {
       notify('error', 'Could not save', errorMessage(err));
@@ -81,6 +89,7 @@ function PersonSheet({ editing, onClose }: { editing: NonNullable<Editing>; onCl
       steps={[
         { id: 'person', title: 'Person', Icon: UserRound, done: !problems.name && !problems.phone && !problems.email },
         { id: 'unit', title: 'Unit', Icon: Link2, done: !!unitId },
+        { id: 'account', title: 'Account', Icon: KeyRound, done: true },
       ]}
       width={700}
       onClose={onClose}
@@ -150,6 +159,41 @@ function PersonSheet({ editing, onClose }: { editing: NonNullable<Editing>; onCl
           <SheetNote tone="warn">{unit.name} is let to <b>{unit.activeLease.tenantName}</b>. This tenant will be linked as an additional occupant.</SheetNote>
         )}
       </SheetSection>
+
+      <SheetSection id="account">
+        <label className={`fs-check${portalAccess ? ' on' : ''}`}>
+          <input type="checkbox" checked={portalAccess} onChange={(e) => setPortalAccess(e.target.checked)} />
+          <span>
+            <b>Create a {kind === 'tenant' ? 'tenant' : 'customer'} account</b>
+            <small>{kind === 'tenant'
+              ? 'They can sign in to see their lease, balance, statement and where to pay rent.'
+              : 'They can sign in to buy tokens for their meter and see their purchase history.'}</small>
+          </span>
+        </label>
+
+        {portalAccess && (
+          <>
+            <div className="pa-card">
+              <span className="pa-ico"><ShieldCheck size={18} strokeWidth={1.75} /></span>
+              <dl>
+                <div><dt>Signs in with</dt><dd className="mono">{phone.trim() || 'their phone number'}</dd></div>
+                <div><dt>Verification</dt><dd>6-digit code by SMS</dd></div>
+                <div><dt>Login page</dt><dd>{window.location.host}/login → {kind === 'tenant' ? 'Tenant' : 'Customer'}</dd></div>
+              </dl>
+            </div>
+            <label className={`fs-check${sendInvite ? ' on' : ''}`}>
+              <input type="checkbox" checked={sendInvite} onChange={(e) => setSendInvite(e.target.checked)} />
+              <span>
+                <b><MessageSquare size={13} style={{ verticalAlign: -2 }} /> {invitedAt ? 'Send the sign-in instructions again' : 'Text them how to sign in'}</b>
+                <small>{invitedAt ? `Last sent ${new Date(invitedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.` : 'A short SMS from you with the link and how to sign in. No password needed.'}</small>
+              </span>
+            </label>
+          </>
+        )}
+        {!portalAccess && hadAccess && (
+          <SheetNote tone="warn">They will be signed out and won’t be able to sign in again until you turn this back on.</SheetNote>
+        )}
+      </SheetSection>
     </FormSheet>
   );
 }
@@ -181,8 +225,8 @@ export default function PeoplePage() {
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = tab === 'tenant'
-      ? tenants.map((t) => ({ id: t.id, name: t.name, phone: t.phone, email: t.email, status: t.status, unit: t.unitName ?? null, property: t.propertyName ?? null, lease: t.activeLease ?? null, meter: null as string | null, tenant: t, customer: undefined as LandlordCustomer | undefined }))
-      : customers.map((c) => ({ id: c.id, name: c.name, phone: c.phone, email: c.email, status: c.status, unit: c.unit?.name ?? null, property: c.unit?.property.name ?? null, lease: null, meter: c.meter?.meterNumber ?? null, tenant: undefined as Tenant | undefined, customer: c }));
+      ? tenants.map((t) => ({ id: t.id, name: t.name, phone: t.phone, email: t.email, status: t.status, unit: t.unitName ?? null, property: t.propertyName ?? null, lease: t.activeLease ?? null, meter: null as string | null, portal: !!t.portalAccess, invitedAt: t.portalInvitedAt ?? null, tenant: t, customer: undefined as LandlordCustomer | undefined }))
+      : customers.map((c) => ({ id: c.id, name: c.name, phone: c.phone, email: c.email, status: c.status, unit: c.unit?.name ?? null, property: c.unit?.property.name ?? null, lease: null, meter: c.meter?.meterNumber ?? null, portal: c.portalAccess, invitedAt: c.portalInvitedAt, tenant: undefined as Tenant | undefined, customer: c }));
     return list.filter((r) => {
       if (linkFilter === 'linked' && !r.unit) return false;
       if (linkFilter === 'unlinked' && r.unit) return false;
@@ -253,7 +297,7 @@ export default function PeoplePage() {
               <div key={r.id} className={`pp-row${r.status === 'INACTIVE' ? ' inactive' : ''}`}>
                 <span className={`pp-av ${tab}`}>{r.name.slice(0, 1).toUpperCase()}</span>
                 <span className="pp-who">
-                  <b>{r.name}{r.status === 'INACTIVE' && <em>Inactive</em>}</b>
+                  <b>{r.name}{r.status === 'INACTIVE' && <em>Inactive</em>}{r.portal && <em className="pp-portal" title={r.invitedAt ? `Invited ${new Date(r.invitedAt).toLocaleDateString('en-GB')}` : 'Can sign in'}><KeyRound size={10} /> Can sign in</em>}</b>
                   <small><Phone size={12} /> {r.phone}{r.email ? ` · ${r.email}` : ''}</small>
                 </span>
                 <span className="pp-where">

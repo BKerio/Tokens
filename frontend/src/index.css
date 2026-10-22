@@ -2268,3 +2268,35 @@ h1, h2 { font-family: var(--font-display); }
   .cl-kpis, .cl-receipt { grid-template-columns: 1fr; }
   .cl-kpis > div + div, .cl-receipt > span + span { border-left: 0; border-top: 1px solid var(--border); }
 }
+
+/* ── Portal accounts (pa-*) & tenant portal (tp-*) ──────────────────────── */
+.pa-card { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); }
+.pa-ico { width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--border); color: var(--ink-2); }
+.pa-card dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; flex: 1; min-width: 0; }
+.pa-card dt { font-size: 11.5px; color: var(--muted); }
+.pa-card dd { margin: 2px 0 0; font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-who em.pp-portal { display: inline-flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--border); color: var(--ink-2); }
+
+.tp-pay-wrap { padding: 16px 22px 20px; border-top: 1px solid var(--border); }
+.tp-pay-wrap h4 { margin: 0 0 10px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.tp-pay { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
+.tp-pay.empty { align-items: center; color: var(--muted); background: var(--surface-2); }
+.tp-pay.empty > span { display: flex; flex-direction: column; gap: 2px; }
+.tp-pay.empty b { font-size: 14px; color: var(--ink); }
+.tp-pay.empty small { font-size: 13px; }
+.tp-pay-ico { width: 40px; height: 40px; flex-shrink: 0; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); color: var(--ink-2); }
+.tp-pay-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
+.tp-pay-body > b { font-size: 14px; color: var(--ink); }
+.tp-pay-fields { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+.tp-pay-fields > span { display: flex; flex-direction: column; gap: 3px; }
+.tp-pay-fields small { font-size: 11.5px; color: var(--muted); }
+.tp-copy { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface); font: inherit; font-size: 15px; font-weight: 600; color: var(--ink); cursor: pointer; transition: border-color .14s, background .14s; }
+.tp-copy svg { color: var(--muted); }
+.tp-copy:hover { border-color: var(--ink-2); background: var(--surface-2); }
+.tp-pay-name { font-size: 12.5px; color: var(--muted); }
+.tp-past { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.tp-past li { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13.5px; color: var(--ink); }
+.tp-past small { color: var(--muted); }
+@media (max-width: 640px) {
+  .pa-card dl { grid-template-columns: 1fr; }
+}

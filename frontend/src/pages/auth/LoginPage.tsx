@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, CircleAlert, Eye, EyeOff, KeyRound, Lock, Phone, ShieldCheck, User as UserIcon } from 'lucide-react';
-import { login, sendCustomerOtp, verifyCustomerOtp, googleSignInUrl, type Session } from '@/api/auth';
+import { login, sendCustomerOtp, sendTenantOtp, verifyCustomerOtp, verifyTenantOtp, googleSignInUrl, type Session } from '@/api/auth';
 import { errorMessage } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
 import { useNotificationStore } from '@/stores/notificationStore';
@@ -10,7 +10,7 @@ import AppLoader from '@/components/shared/AppLoader';
 import { LogoLockup } from '@/components/brand/Logo';
 import type { User } from '@/types/api';
 
-type Mode = 'account' | 'customer';
+type Mode = 'account' | 'customer' | 'tenant';
 
 /** Branded card shell shared by the login, registration and password-reset screens. */
 export function AuthCard({ title, subtitle, children, footer }: { title: string; subtitle: string; children: ReactNode; footer?: ReactNode }) {
@@ -106,31 +106,34 @@ function LoginPage() {
   const onCustomerSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!otpSent) {
-      if (phone.trim().length < 9) return setError('Enter the phone number registered with your meter.');
+      if (phone.trim().length < 9) return setError(mode === 'tenant' ? 'Enter the phone number your landlord registered.' : 'Enter the phone number registered with your meter.');
       void run(async () => {
-        await sendCustomerOtp(phone.trim());
+        await (mode === 'tenant' ? sendTenantOtp : sendCustomerOtp)(phone.trim());
         setOtpSent(true);
         addNotification({ type: 'info', title: 'Code sent', message: 'Check your phone for a 6-digit code.' });
       });
     } else {
       if (!/^\d{6}$/.test(otp)) return setError('Enter the 6-digit code we sent you.');
-      void run(async () => finish(await verifyCustomerOtp(phone.trim(), otp)));
+      void run(async () => finish(await (mode === 'tenant' ? verifyTenantOtp : verifyCustomerOtp)(phone.trim(), otp)));
     }
   };
 
   const switchMode = (m: Mode) => {
     setMode(m);
     setError('');
+    setOtpSent(false);
+    setOtp('');
   };
 
   return (
     <AuthCard
       title="Sign in"
-      subtitle={mode === 'account' ? 'Administrators, vendors and landlords.' : 'Customers sign in with a one-time code sent to their phone.'}
+      subtitle={mode === 'account' ? 'Administrators, vendors and landlords.' : mode === 'tenant' ? 'Tenants sign in with a code sent to the phone your landlord registered.' : 'Customers sign in with a one-time code sent to their phone.'}
     >
       <div className="tabs" style={{ marginBottom: 18 }}>
         <button type="button" className={`tab${mode === 'account' ? ' on' : ''}`} onClick={() => switchMode('account')}>Staff &amp; partners</button>
         <button type="button" className={`tab${mode === 'customer' ? ' on' : ''}`} onClick={() => switchMode('customer')}>Customer</button>
+        <button type="button" className={`tab${mode === 'tenant' ? ' on' : ''}`} onClick={() => switchMode('tenant')}>Tenant</button>
       </div>
 
       <FormError message={error} />
@@ -186,7 +189,7 @@ function LoginPage() {
           <button className="btn btn-primary btn-block btn-lg login-submit" disabled={busy} type="submit">
             {busy ? <AppLoader size={20} /> : otpSent ? <>Verify &amp; sign in <ArrowRight size={16} /></> : <>Send code <ArrowRight size={16} /></>}
           </button>
-          <a className="btn btn-ghost btn-block" href={googleSignInUrl()}>Continue with Google</a>
+          {mode === 'customer' && <a className="btn btn-ghost btn-block" href={googleSignInUrl()}>Continue with Google</a>}
         </form>
       )}
     </AuthCard>

@@ -69,8 +69,9 @@ const LANDLORD: Role[] = ['LANDLORD'];
 /** The landlord and their staff (caretakers, accountants, managers, viewers). */
 const LANDLORD_ORG: Role[] = ['LANDLORD', 'LANDLORD_STAFF'];
 const CUSTOMER: Role[] = ['CUSTOMER'];
+const TENANT: Role[] = ['TENANT'];
 const VENDING: Role[] = [...ADMINS, 'VENDOR', 'LANDLORD'];
-const ALL: Role[] = [...VENDING, 'CUSTOMER', 'LANDLORD_STAFF'];
+const ALL: Role[] = [...VENDING, 'CUSTOMER', 'LANDLORD_STAFF', 'TENANT'];
 
 const menuSections: NavSection[] = [
   {
@@ -79,6 +80,7 @@ const menuSections: NavSection[] = [
       { label: 'Dashboard', path: '/vendor', Icon: LayoutDashboard, roles: VENDOR },
       { label: 'Dashboard', path: '/landlord', Icon: LayoutDashboard, roles: LANDLORD_ORG, perm: 'properties.view' },
       { label: 'Dashboard', path: '/customer', Icon: LayoutDashboard, roles: CUSTOMER },
+      { label: 'My Tenancy', path: '/tenant', Icon: LayoutDashboard, roles: TENANT },
       { label: 'Token Vending', path: '/tokens', Icon: Zap, roles: VENDING },
       { label: 'Buy Tokens', path: '/customer/buy', Icon: ShoppingCart, roles: CUSTOMER },
       { label: 'Transactions', path: '/transactions', Icon: BarChart3, roles: ADMINS },

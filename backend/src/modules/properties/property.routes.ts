@@ -68,6 +68,8 @@ const customerSchema = z.object({
   email: z.union([z.string().trim().email(), z.literal(''), z.null()]).transform((v) => v || null).optional(),
   unitId: z.union([z.string().min(1), z.null()]).optional(),
   status: z.enum(RecordStatus).optional(),
+  portalAccess: z.boolean().optional(),
+  sendInvite: z.boolean().optional(),
 });
 
 const bulkUnitsSchema = z.object({
@@ -90,6 +92,8 @@ const tenantSchema = z.object({
   idNumber: nullableString,
   unitId: z.union([z.string().min(1), z.null()]).optional(),
   status: z.enum(RecordStatus).optional(),
+  portalAccess: z.boolean().optional(),
+  sendInvite: z.boolean().optional(),
 });
 
 const tenantUpdateSchema = tenantSchema.partial();

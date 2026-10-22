@@ -26,6 +26,7 @@ enum Role {
   LANDLORD // Property owner - own properties, hierarchy, meters
   CUSTOMER // End consumer - signs in by phone OTP, buys tokens
   LANDLORD_STAFF // Works for one landlord (see LandlordStaff for role + property scope)
+  TENANT // A landlord's tenant - signs in by phone OTP to see their lease and pay rent
 }
 
 // What a landlord's staff member may do (permission sets live in the API).
@@ -187,6 +188,7 @@ enum ConfigValueType {
 
 enum OtpPurpose {
   CUSTOMER_LOGIN
+  TENANT_LOGIN
   PASSWORD_RESET
 }
 
@@ -346,12 +348,15 @@ model Meter {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Customer {
-  id      String       @id @default(uuid())
-  name    String
-  phone   String
-  email   String?
-  address String?
-  status  RecordStatus @default(ACTIVE)
+  id              String       @id @default(uuid())
+  name            String
+  phone           String
+  email           String?
+  address         String?
+  status          RecordStatus @default(ACTIVE)
+  // May sign in to the customer portal (phone + one-time code).
+  portalAccess    Boolean      @default(true) @map("portal_access")
+  portalInvitedAt DateTime?    @map("portal_invited_at")
 
   legacyMongoId String? @unique @map("legacy_mongo_id")
 
@@ -730,11 +735,14 @@ model PropertyUnit {
 
 // A landlord's tenant, optionally attached to one unit of a property.
 model LandlordTenant {
-  id     String       @id @default(uuid())
-  name   String
-  phone  String
-  email  String?
-  status RecordStatus @default(ACTIVE)
+  id              String       @id @default(uuid())
+  name            String
+  phone           String
+  email           String?
+  status          RecordStatus @default(ACTIVE)
+  // May sign in to the tenant portal (phone + one-time code).
+  portalAccess    Boolean      @default(false) @map("portal_access")
+  portalInvitedAt DateTime?    @map("portal_invited_at")
 
   legacyMongoId String? @unique @map("legacy_mongo_id")
 

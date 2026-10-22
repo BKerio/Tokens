@@ -91,10 +91,23 @@ export class AuthService {
   /** The signed-in account's profile. Customers additionally get their meter, vendor and recent tokens. */
   async me(userId: string, role: Role) {
     if (role === Role.CUSTOMER) return this.customerProfile(userId);
+    if (role === Role.TENANT) return this.tenantProfile(userId);
 
     const user = await this.app.prisma.user.findUnique({ where: { id: userId }, select: USER_SELECT });
     if (!user) throw new NotFoundError('User');
     return { ...user, vendorType: user.vendor?.vendorType ?? null };
+  }
+
+  private async tenantProfile(tenantId: string) {
+    const tenant = await this.app.prisma.landlordTenant.findUnique({
+      where: { id: tenantId },
+      include: { landlord: { select: { fullName: true, phone: true } }, unit: { select: { name: true } }, property: { select: { name: true } } },
+    });
+    if (!tenant || !tenant.portalAccess) throw new NotFoundError('Tenant');
+    return {
+      id: tenant.id, name: tenant.name, email: tenant.email, phone: tenant.phone, role: Role.TENANT, username: null, vendorType: null,
+      landlord: tenant.landlord, unit: tenant.unit?.name ?? null, property: tenant.property.name,
+    };
   }
 
   private async customerProfile(customerId: string) {
@@ -147,6 +160,13 @@ export class AuthService {
       profileImage?: string | null; currentPassword?: string; newPassword?: string;
     },
   ) {
+    if (role === Role.TENANT) {
+      const updated = await this.app.prisma.landlordTenant.update({
+        where: { id: userId },
+        data: { ...(data.name ? { name: data.name } : {}), ...(data.email !== undefined ? { email: data.email } : {}) },
+      });
+      return { id: updated.id, name: updated.name, email: updated.email, phone: updated.phone, role };
+    }
     if (role === Role.CUSTOMER) {
       const updated = await this.app.prisma.customer.update({
         where: { id: userId },
@@ -224,8 +244,38 @@ export class AuthService {
     await this.app.prisma.otp.deleteMany({ where: { purpose, identifier } });
   }
 
+  /** Only customers with portal access may sign in. */
   private findCustomerByPhone(phone: string) {
-    return this.app.prisma.customer.findFirst({ where: { phone: { in: phoneVariants(phone) } }, orderBy: { createdAt: 'asc' } });
+    return this.app.prisma.customer.findFirst({ where: { phone: { in: phoneVariants(phone) }, portalAccess: true }, orderBy: { createdAt: 'asc' } });
+  }
+
+  /** Tenants sign in only once their landlord has given them portal access. */
+  private findTenantByPhone(phone: string) {
+    return this.app.prisma.landlordTenant.findFirst({
+      where: { phone: { in: phoneVariants(phone) }, portalAccess: true, status: 'ACTIVE' },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async sendTenantOtp(phone: string) {
+    const tenant = await this.findTenantByPhone(phone);
+    if (!tenant) throw new NotFoundError('Tenant account with this phone number');
+    const identifier = normalizeMsisdn(phone) ?? phone.trim();
+    const code = await this.issueOtp(OtpPurpose.TENANT_LOGIN, identifier, CUSTOMER_OTP_TTL_MS);
+    const sent = await this.app.sms.send(normalizeMsisdn(tenant.phone) ?? tenant.phone, `Your TokenPap tenant sign-in code is: ${code}. Valid for 5 minutes.`);
+    if (!sent) throw new BadRequestError('Failed to send the code. Please try again later.');
+  }
+
+  async verifyTenantOtp(phone: string, code: string) {
+    const identifier = normalizeMsisdn(phone) ?? phone.trim();
+    if (!(await this.checkOtp(OtpPurpose.TENANT_LOGIN, identifier, code))) throw new UnauthorizedError('Invalid or expired code.');
+    const tenant = await this.findTenantByPhone(phone);
+    if (!tenant) throw new NotFoundError('Tenant');
+    await this.consumeOtp(OtpPurpose.TENANT_LOGIN, identifier);
+    return {
+      token: signToken({ userId: tenant.id, role: Role.TENANT }),
+      user: { id: tenant.id, name: tenant.name, email: tenant.email, username: null, phone: tenant.phone, role: Role.TENANT, vendorType: null } satisfies SessionUser,
+    };
   }
 
   async sendCustomerOtp(phone: string) {

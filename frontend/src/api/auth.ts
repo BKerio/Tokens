@@ -20,6 +20,15 @@ export async function verifyCustomerOtp(phone: string, otp: string): Promise<Ses
   return res.data.data;
 }
 
+export async function sendTenantOtp(phone: string): Promise<void> {
+  await api.post('/auth/tenant/send-otp', { phone });
+}
+
+export async function verifyTenantOtp(phone: string, otp: string): Promise<Session> {
+  const res = await api.post('/auth/tenant/verify-otp', { phone, otp });
+  return res.data.data;
+}
+
 export async function getMe(): Promise<StaffProfile | CustomerProfile> {
   const res = await api.get('/auth/me');
   return res.data.data;
