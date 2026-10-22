@@ -282,7 +282,8 @@ model Landlord {
 // ─────────────────────────────────────────────────────────────────────────────
 // Meter - a prepaid STS meter. Assigned to a vendor and/or a landlord by an
 // admin; only the owning vendor sets price_per_unit. The STS key fields
-// (sgc/krn/ti/ea/ken) are per-meter fallbacks - see integrations/prism.
+// (sgc/krn/ti/ea/ken) override the global Vending Control defaults when set
+// - see VendingService.meterConfig.
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Meter {

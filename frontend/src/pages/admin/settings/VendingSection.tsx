@@ -18,7 +18,7 @@ const PARAMS: Record<string, { code: string; name: string; hint: string; check?:
   vending_ken: { code: 'KEN', name: 'Key Expiry Number', hint: '255 means the key never expires.', check: (v) => (Number(v) > 255 ? 'KEN is between 0 and 255' : null) },
 };
 
-const same = (a: VendingSetting, b: VendingSetting) => (a.value ?? '') === (b.value ?? '') && a.isActive === b.isActive;
+const same = (a: VendingSetting, b: VendingSetting) => (a.value ?? '') === (b.value ?? '');
 
 export default function VendingSection({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
   const queryClient = useQueryClient();
@@ -32,17 +32,15 @@ export default function VendingSection({ onDirtyChange }: { onDirtyChange: (dirt
 
   const errorOf = (r: VendingSetting) => {
     const v = r.value ?? '';
-    if (!r.isActive && !v) return null;
-    if (!v) return 'Enter a value to activate this override';
+    if (!v) return 'Enter a value - every meter without its own uses it';
     return PARAMS[r.key]?.check?.(v) ?? null;
   };
-  const hasErrors = rows.some((r) => r.isActive && errorOf(r));
-  const activeCount = rows.filter((r) => r.isActive).length;
+  const hasErrors = rows.some((r) => errorOf(r));
 
   const update = (key: string, patch: Partial<VendingSetting>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
   const save = useMutation({
-    mutationFn: () => updateVendingSettings(rows.map((r) => ({ key: r.key, value: r.value, isActive: r.isActive }))),
+    mutationFn: () => updateVendingSettings(rows.map((r) => ({ key: r.key, value: r.value }))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vending-settings'] });
       notify('success', 'Vending settings saved');
@@ -51,18 +49,14 @@ export default function VendingSection({ onDirtyChange }: { onDirtyChange: (dirt
   });
 
   const onSave = async () => {
-    const newlyActive = changed.filter((r) => r.isActive && (!original[r.key]?.isActive || r.value !== original[r.key]?.value));
-    if (newlyActive.length) {
-      const list = newlyActive.map((r) => `${PARAMS[r.key]?.code ?? r.key} = ${r.value}`).join(', ');
-      const ok = await confirmDialog({
-        title: 'Override every meter?',
-        text: `${list} will be used for ALL meters instead of each meter's own key data. Wrong values make tokens unusable.`,
-        confirmLabel: 'Apply override',
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    save.mutate();
+    const list = changed.map((r) => `${PARAMS[r.key]?.code ?? r.key} = ${r.value}`).join(', ');
+    const ok = await confirmDialog({
+      title: 'Change the STS defaults?',
+      text: `${list} will be used for every meter that has no value of its own for it (meters with their own STS values keep them). Wrong values make tokens unusable.`,
+      confirmLabel: 'Save defaults',
+      danger: true,
+    });
+    if (ok) save.mutate();
   };
 
   if (isLoading) return <LoadingBlock height={420} />;
@@ -74,8 +68,8 @@ export default function VendingSection({ onDirtyChange }: { onDirtyChange: (dirt
         <SectionHead
           Icon={Cpu}
           title="STS vending"
-          description="Key data sent to Prism with every token. Normally each meter uses its own values; switch an override on only to force one value onto every meter."
-          aside={<span className={`pill ${activeCount ? 'pill-amber' : 'pill-green'}`}><span className="dot" />{activeCount ? `${activeCount} override${activeCount === 1 ? '' : 's'} active` : 'Per-meter values'}</span>}
+          description="Key data sent to Prism with every token. These values apply to all meters; a meter that has its own STS value (set on the meter's STS keys step) keeps using it for that field."
+          aside={<span className="pill pill-green"><span className="dot" />Applies to all meters</span>}
         />
 
         <div className="st-body">
@@ -90,24 +84,20 @@ export default function VendingSection({ onDirtyChange }: { onDirtyChange: (dirt
               const err = errorOf(r);
               const isChanged = original[r.key] && !same(r, original[r.key]);
               return (
-                <div key={r.key} className={`st-param${r.isActive ? ' active' : ''}${isChanged ? ' changed' : ''}`}>
+                <div key={r.key} className={`st-param${isChanged ? ' changed' : ''}`}>
                   <div className="st-param-top">
                     <span className="st-param-code">{meta.code}</span>
-                    <label className="st-mini-switch" title={r.isActive ? 'Override on - applies to every meter' : 'Override off - meters use their own value'}>
-                      <input type="checkbox" role="switch" aria-label={`Override ${meta.name} for every meter`} checked={r.isActive} onChange={(e) => update(r.key, { isActive: e.target.checked })} />
-                      <span aria-hidden="true"><i /></span>
-                    </label>
                   </div>
                   <b className="st-param-name">{meta.name}</b>
                   <input
                     className="input mono st-param-input"
                     inputMode="numeric"
                     aria-label={`${meta.name} value`}
-                    aria-invalid={!!(r.isActive && err)}
+                    aria-invalid={!!err}
                     value={r.value ?? ''}
                     onChange={(e) => update(r.key, { value: e.target.value.replace(/\D/g, '') })}
                   />
-                  <small className={r.isActive && err ? 'st-error' : 'st-hint'}>{r.isActive && err ? err : r.isActive ? 'Overrides every meter' : meta.hint}</small>
+                  <small className={err ? 'st-error' : 'st-hint'}>{err ?? meta.hint}</small>
                 </div>
               );
             })}

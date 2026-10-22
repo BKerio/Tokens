@@ -674,7 +674,7 @@ export interface PrismTestResult {
   controlValue: number | null;
   source: 'database' | 'defaults' | 'raw';
   meter: { type: string; status: string; owner: string | null } | null;
-  overrides: Record<string, number>;
+  vendingDefaults: Record<string, number>;
   sts: { sgc: number; krn: number; ti: number; ea: number; tct: number; ken: number } | null;
   prism: { host: string; port: number };
   steps: PrismTestStep[];

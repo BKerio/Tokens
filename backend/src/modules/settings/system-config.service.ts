@@ -50,7 +50,7 @@ export function presentConfig(config: SystemConfig, plaintext: string | null) {
 
 /**
  * Typed read access to the global SystemConfig key/value store and the STS
- * VendingSetting overrides. Constructed once in server.ts and shared via
+ * Vending Control defaults (VendingSetting). Constructed once in server.ts and shared via
  * the AppContext; the CRUD routes live in settings.routes.ts.
  */
 export class SystemConfigService {
@@ -92,9 +92,13 @@ export class SystemConfigService {
     return out;
   }
 
-  /** Active STS vending overrides as key → number (e.g. { vending_sgc: 201457 }). */
-  async vendingOverrides(): Promise<Record<string, number>> {
-    const rows: VendingSetting[] = await this.prisma.vendingSetting.findMany({ where: { isActive: true } });
+  /**
+   * Global STS defaults from Settings → Vending Control as key → number
+   * (e.g. { vending_sgc: 600909 }). Every meter uses these unless it has its
+   * own value for the field.
+   */
+  async vendingDefaults(): Promise<Record<string, number>> {
+    const rows: VendingSetting[] = await this.prisma.vendingSetting.findMany();
     const out: Record<string, number> = {};
     for (const row of rows) {
       const value = castConfigValue(row.type, row.value);

@@ -24,7 +24,7 @@ export interface PrismTestInput {
   control?: PrismControlType;
   /** Control value for SET_MAX_OVERDRAFT. */
   value?: number;
-  /** Skip the database: legacy test meter values, no vending overrides. */
+  /** Skip the database: legacy test meter values, ignoring Vending Control. */
   raw?: boolean;
 }
 
@@ -46,7 +46,8 @@ export interface PrismTestResult {
   controlValue: number | null;
   source: 'database' | 'defaults' | 'raw';
   meter: { type: string; status: string; owner: string | null } | null;
-  overrides: Record<string, number>;
+  /** Global Vending Control defaults in effect (not used for raw runs). */
+  vendingDefaults: Record<string, number>;
   sts: Omit<MeterConfigIn, 'drn' | 'allowKrnUpdate'> | null;
   prism: { host: string; port: number };
   steps: PrismTestStep[];
@@ -79,7 +80,7 @@ export class PrismTestService {
       controlValue: null,
       source: input.raw ? 'raw' : 'defaults',
       meter: null,
-      overrides: {},
+      vendingDefaults: {},
       sts: null,
       prism: { host: env.PRISM_TOKEN_HOST, port: env.PRISM_TOKEN_PORT },
       steps,
@@ -118,8 +119,10 @@ export class PrismTestService {
           where: { meterNumber: input.meterNumber },
           include: { vendor: { select: { businessName: true } }, landlord: { select: { fullName: true } } },
         });
-        result.overrides = await this.app.settings.vendingOverrides();
-        meterConfig = await new VendingService(this.app).meterConfig(dbMeter ?? { meterNumber: input.meterNumber, ...LEGACY_TEST_METER });
+        result.vendingDefaults = await this.app.settings.vendingDefaults();
+        // Unknown meter: no own values, so Vending Control (then built-in) defaults apply.
+        const blank = { meterNumber: input.meterNumber, sgc: null, krn: null, ti: null, ea: null, ken: null };
+        meterConfig = await new VendingService(this.app).meterConfig(dbMeter ?? blank);
         if (dbMeter) {
           result.source = 'database';
           result.meter = { type: dbMeter.type, status: dbMeter.status, owner: dbMeter.vendor?.businessName ?? dbMeter.landlord?.fullName ?? null };
@@ -137,7 +140,7 @@ export class PrismTestService {
       result.sts = sts;
       return result.source === 'database'
         ? `Meter found (${result.meter?.owner ?? 'unassigned'})`
-        : result.source === 'raw' ? 'Raw legacy test values' : 'Meter not in database - legacy test values';
+        : result.source === 'raw' ? 'Raw legacy test values' : 'Meter not in database - Vending Control defaults';
     });
 
     if (!configOk) {

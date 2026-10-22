@@ -81,17 +81,20 @@ export class VendingService {
     this.credentials = new GatewayCredentialsService(app);
   }
 
-  /** STS key data: active VendingSetting overrides win, then the meter's own values, then defaults. */
+  /**
+   * STS key data: the meter's own values win, then the global Vending Control
+   * defaults (Settings), then built-in defaults. TCT has no per-meter field.
+   */
   async meterConfig(meter: Pick<Meter, 'meterNumber' | 'sgc' | 'krn' | 'ti' | 'ea' | 'ken'>): Promise<MeterConfigIn> {
-    const o = await this.app.settings.vendingOverrides();
+    const d = await this.app.settings.vendingDefaults();
     return {
       drn: meter.meterNumber,
-      sgc: o.vending_sgc ?? meter.sgc ?? STS_DEFAULTS.sgc,
-      krn: o.vending_krn ?? meter.krn ?? STS_DEFAULTS.krn,
-      ti: o.vending_ti ?? meter.ti ?? STS_DEFAULTS.ti,
-      ea: o.vending_ea ?? meter.ea ?? STS_DEFAULTS.ea,
-      tct: o.vending_tct ?? STS_DEFAULTS.tct,
-      ken: o.vending_ken ?? meter.ken ?? STS_DEFAULTS.ken,
+      sgc: meter.sgc ?? d.vending_sgc ?? STS_DEFAULTS.sgc,
+      krn: meter.krn ?? d.vending_krn ?? STS_DEFAULTS.krn,
+      ti: meter.ti ?? d.vending_ti ?? STS_DEFAULTS.ti,
+      ea: meter.ea ?? d.vending_ea ?? STS_DEFAULTS.ea,
+      tct: d.vending_tct ?? STS_DEFAULTS.tct,
+      ken: meter.ken ?? d.vending_ken ?? STS_DEFAULTS.ken,
       allowKrnUpdate: false,
     };
   }

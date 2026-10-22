@@ -22,7 +22,7 @@ const OPTIONS: { value: TokenOption; label: string; help: string }[] = [
 const SOURCE_LABEL: Record<PrismTestResult['source'], string> = {
   database: 'Meter found in the database - its STS values were used',
   defaults: 'Meter not in the database - legacy test values were used',
-  raw: 'Raw mode - legacy test values, vending overrides ignored',
+  raw: 'Raw mode - legacy test values, Vending Control ignored',
 };
 
 function StepRow({ step, index }: { step: PrismTestStep; index: number }) {
@@ -47,7 +47,7 @@ function StepRow({ step, index }: { step: PrismTestStep; index: number }) {
 }
 
 function ResultCard({ r }: { r: PrismTestResult }) {
-  const overrides = Object.entries(r.overrides);
+  const defaults = Object.entries(r.vendingDefaults);
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="card card-pad flex items-center gap-3" style={{ borderColor: r.ok ? 'var(--color-status-success)' : 'var(--red)', background: r.ok ? 'color-mix(in srgb, var(--color-status-success) 8%, var(--surface))' : 'color-mix(in srgb, var(--red) 6%, var(--surface))' }}>
@@ -109,7 +109,7 @@ function ResultCard({ r }: { r: PrismTestResult }) {
           )}
           {r.source !== 'raw' && (
             <span className="text-xs" style={{ color: 'var(--muted)' }}>
-              Vending overrides: {overrides.length ? overrides.map(([k, v]) => `${k.replace('vending_', '').toUpperCase()}=${v}`).join(', ') : 'none active'}
+              Vending Control defaults: {defaults.length ? defaults.map(([k, v]) => `${k.replace('vending_', '').toUpperCase()}=${v}`).join(', ') : 'none set'} (the meter's own values win)
             </span>
           )}
           <span className="text-xs mono" style={{ color: 'var(--muted)' }}>
@@ -194,7 +194,7 @@ function PrismTestPage() {
               )}
               <label className="flex items-start gap-2 text-sm" style={{ color: 'var(--ink)' }}>
                 <input type="checkbox" checked={raw} onChange={(e) => setRaw(e.target.checked)} style={{ marginTop: 3 }} />
-                <span>Raw mode<br /><span className="text-xs" style={{ color: 'var(--muted)' }}>Ignore the database and vending overrides; use the legacy test values (SGC 600909, KRN 1, TI 1, EA 7, KEN 255).</span></span>
+                <span>Raw mode<br /><span className="text-xs" style={{ color: 'var(--muted)' }}>Ignore the database and Vending Control; use the legacy test values (SGC 600909, KRN 1, TI 1, EA 7, KEN 255).</span></span>
               </label>
               <button className="btn btn-primary btn-block" type="submit" disabled={test.isPending}>
                 {test.isPending ? <><AppLoader size={16} /> Contacting Prism…</> : <><Zap size={16} /> Run test</>}

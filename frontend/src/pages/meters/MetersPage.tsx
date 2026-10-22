@@ -134,7 +134,7 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
       </SheetSection>
 
       <SheetSection id="sts" aside="Optional">
-        <p className="vf-hint" style={{ margin: 0 }}>Used when vending unless a vending override is switched on in Settings.</p>
+        <p className="vf-hint" style={{ margin: 0 }}>Leave blank to use the global defaults from Settings → Vending Control. A value here wins over the default.</p>
         <div className="fs-sts">
           {(['sgc', 'krn', 'ti', 'ea', 'ken'] as const).map((k) => (
             <SheetField key={k} label={k.toUpperCase()} error={errors[k]?.message}><input className="input mono" inputMode="numeric" {...register(k)} /></SheetField>

@@ -28,11 +28,11 @@ import { PrismTestService, type PrismControlType } from '../src/modules/tokens/p
  *                      (uses the TOKEN_CONTROL_* mappings from .env)
  *   --value=<n>        control value for set_max_overdraft
  *   --raw              skip the database: use the legacy test meter's STS values
- *                      (SGC 600909, KRN 1, TI 1, EA 7, KEN 255) with no vending overrides
+ *                      (SGC 600909, KRN 1, TI 1, EA 7, KEN 255), ignoring Vending Control
  *
  * Without --raw the meter config is built exactly as a live vend builds it:
- * active Settings → STS vending overrides first, then the meter's own STS
- * values if it exists in the database, then defaults.
+ * the meter's own STS values if it exists in the database, then the global
+ * Settings → Vending Control defaults, then built-in defaults.
  *
  * Issues a REAL token on the Prism network, but writes nothing to the
  * database and sends no SMS.
@@ -91,8 +91,8 @@ async function main() {
 
     if (r.sts) {
       if (r.source !== 'raw') {
-        const o = Object.entries(r.overrides);
-        console.log(`Overrides: ${o.length ? o.map(([k, v]) => `${k.replace('vending_', '')}=${v}`).join(', ') : 'none active'}`);
+        const d = Object.entries(r.vendingDefaults);
+        console.log(`Defaults: ${d.length ? d.map(([k, v]) => `${k.replace('vending_', '')}=${v}`).join(', ') : 'none set'}`);
       }
       console.log(`STS:     SGC ${r.sts.sgc} · KRN ${r.sts.krn} · TI ${r.sts.ti} · EA ${r.sts.ea} · TCT ${r.sts.tct} · KEN ${r.sts.ken}`);
     }
