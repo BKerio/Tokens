@@ -1,6 +1,7 @@
 import { AppContext } from '../../context.js';
 import type { LandlordTenant, Prisma, PropertyUnit } from '../../generated/prisma/index.js';
-import { PropertyType, RecordStatus, UnitPaymentMethod } from '../../shared/types/index.js';
+import { PropertyType, RecordStatus, UnitOccupancy, UnitPaymentMethod } from '../../shared/types/index.js';
+import { normalizeMsisdn } from '../../shared/utils/phone.js';
 import { ForbiddenError, NotFoundError, UnprocessableError } from '../../shared/errors/AppError.js';
 
 export interface PropertyInput {
@@ -38,6 +39,19 @@ export interface UnitInput {
   depositAmount?: number | null;
   /** null clears the unit's payment account; undefined leaves it alone. */
   payment?: PaymentAccountInput | null;
+  occupancy?: UnitOccupancy;
+  occupancyNote?: string | null;
+  /** The full set of tenants / customers linked to the unit (replaces the current links). */
+  tenantIds?: string[];
+  customerIds?: string[];
+}
+
+export interface LandlordCustomerInput {
+  name: string;
+  phone: string;
+  email?: string | null;
+  unitId?: string | null;
+  status?: RecordStatus;
 }
 
 const UNIT_INCLUDE = {
@@ -47,6 +61,8 @@ const UNIT_INCLUDE = {
     take: 1,
     select: { id: true, code: true, tenant: { select: { id: true, name: true, phone: true } } },
   },
+  tenants: { select: { id: true, name: true, phone: true }, orderBy: { name: 'asc' } },
+  customers: { select: { id: true, name: true, phone: true }, orderBy: { name: 'asc' } },
 } satisfies Prisma.PropertyUnitInclude;
 
 type UnitRow = Prisma.PropertyUnitGetPayload<{ include: typeof UNIT_INCLUDE }>;
@@ -73,6 +89,11 @@ function presentUnit(u: UnitRow) {
     name: u.name,
     unitNumber: u.unitNumber,
     status: u.status,
+    // An active lease always means occupied, whatever was set by hand.
+    occupancy: lease ? UnitOccupancy.OCCUPIED : u.occupancy,
+    occupancyNote: u.occupancyNote,
+    tenants: u.tenants,
+    customers: u.customers,
     meterId: u.meterId,
     meterNumber: u.meter?.meterNumber ?? null,
     monthlyRent: u.monthlyRent === null ? null : Number(u.monthlyRent),
@@ -89,6 +110,12 @@ function presentUnit(u: UnitRow) {
     activeLease: lease ? { id: lease.id, code: lease.code, tenantId: lease.tenant.id, tenantName: lease.tenant.name, tenantPhone: lease.tenant.phone } : null,
   };
 }
+
+const CUSTOMER_SELECT = {
+  id: true, name: true, phone: true, email: true, status: true, createdAt: true, unitId: true, meterId: true,
+  unit: { select: { id: true, name: true, property: { select: { id: true, name: true } } } },
+  meter: { select: { meterNumber: true } },
+} satisfies Prisma.CustomerSelect;
 
 function presentTenant(t: LandlordTenant) {
   return {
@@ -387,12 +414,38 @@ export class PropertyService {
   }
 
   async updateUnit(landlordId: string, actorId: string, id: string, input: UnitInput) {
-    await this.ownedUnit(landlordId, id);
-    const { payment, ...fields } = input;
-    const unit = await this.app.prisma.propertyUnit.update({
-      where: { id },
-      data: { ...fields, ...(payment !== undefined ? paymentColumns(payment) : {}) },
-      include: UNIT_INCLUDE,
+    const current = await this.ownedUnit(landlordId, id);
+    const { payment, tenantIds, customerIds, ...fields } = input;
+
+    if (fields.occupancy && fields.occupancy !== UnitOccupancy.OCCUPIED) {
+      const lease = await this.app.prisma.lease.findFirst({ where: { unitId: id, status: 'ACTIVE' }, select: { code: true } });
+      if (lease) throw new UnprocessableError(`This unit is let on lease ${lease.code}. End the lease before marking it ${fields.occupancy.toLowerCase()}.`);
+    }
+    if (tenantIds?.length) {
+      const owned = await this.app.prisma.landlordTenant.count({ where: { id: { in: tenantIds }, landlordId } });
+      if (owned !== new Set(tenantIds).size) throw new ForbiddenError('One or more tenants are not yours.');
+    }
+    if (customerIds?.length) {
+      const owned = await this.app.prisma.customer.count({ where: { id: { in: customerIds }, landlordId } });
+      if (owned !== new Set(customerIds).size) throw new ForbiddenError('One or more customers are not yours.');
+    }
+
+    const unit = await this.app.prisma.$transaction(async (tx) => {
+      if (tenantIds) {
+        await tx.landlordTenant.updateMany({ where: { unitId: id, id: { notIn: tenantIds } }, data: { unitId: null } });
+        if (tenantIds.length) await tx.landlordTenant.updateMany({ where: { id: { in: tenantIds } }, data: { unitId: id, propertyId: current.propertyId } });
+      }
+      if (customerIds) {
+        // Unlinked customers lose this unit's meter; linked ones buy tokens for it.
+        await tx.customer.updateMany({ where: { unitId: id, id: { notIn: customerIds }, meterId: current.meterId ?? undefined }, data: { unitId: null, meterId: null } });
+        await tx.customer.updateMany({ where: { unitId: id, id: { notIn: customerIds } }, data: { unitId: null } });
+        if (customerIds.length) await tx.customer.updateMany({ where: { id: { in: customerIds } }, data: { unitId: id, meterId: current.meterId } });
+      }
+      return tx.propertyUnit.update({
+        where: { id },
+        data: { ...fields, ...(payment !== undefined ? paymentColumns(payment) : {}) },
+        include: UNIT_INCLUDE,
+      });
     });
     await this.audit(actorId, 'UPDATE', id, `Updated unit ${unit.name}`);
     return presentUnit(unit);
@@ -403,6 +456,8 @@ export class PropertyService {
     if (meterId) await this.assertMetersOwned(landlordId, [meterId]);
     const unit = await this.app.prisma.$transaction(async (tx) => {
       if (meterId) await tx.propertyUnit.updateMany({ where: { meterId, id: { not: id } }, data: { meterId: null } });
+      // Customers linked to the unit buy tokens for whichever meter it has.
+      await tx.customer.updateMany({ where: { unitId: id }, data: { meterId } });
       return tx.propertyUnit.update({ where: { id }, data: { meterId }, include: UNIT_INCLUDE });
     });
     await this.audit(actorId, 'UPDATE', id, meterId ? `Linked meter ${await this.meterNumber(meterId)} to unit ${unit.name}` : `Unlinked meter from unit ${unit.name}`);
@@ -421,6 +476,78 @@ export class PropertyService {
     await this.audit(actorId, 'DELETE', id, `Deleted unit ${unit.name}`);
   }
 
+  // ── Customers (token buyers in a landlord's units) ─────────────────────────
+
+  /** Staff scoped to some properties only see customers linked to units in them. */
+  async listCustomers(landlordId: string, scopeIds?: string[]) {
+    return this.app.prisma.customer.findMany({
+      where: { landlordId, ...(scopeIds ? { unit: { propertyId: { in: scopeIds } } } : {}) },
+      orderBy: { name: 'asc' },
+      select: CUSTOMER_SELECT,
+    });
+  }
+
+  private async ownedCustomer(landlordId: string, id: string) {
+    const customer = await this.app.prisma.customer.findUnique({ where: { id }, include: { unit: { select: { propertyId: true } } } });
+    if (!customer) throw new NotFoundError('Customer');
+    if (customer.landlordId !== landlordId) throw new ForbiddenError('Access denied.');
+    return customer;
+  }
+
+  /** propertyId of a unit the landlord owns (for staff scope checks), or null. */
+  async unitProperty(landlordId: string, unitId?: string | null) {
+    if (!unitId) return null;
+    const unit = await this.ownedUnit(landlordId, unitId);
+    return unit.propertyId;
+  }
+
+  async customerProperty(landlordId: string, id: string) {
+    return (await this.ownedCustomer(landlordId, id)).unit?.propertyId ?? null;
+  }
+
+  async createCustomer(landlordId: string, actorId: string, input: LandlordCustomerInput) {
+    const unit = input.unitId ? await this.ownedUnit(landlordId, input.unitId) : null;
+    const customer = await this.app.prisma.customer.create({
+      data: {
+        landlordId,
+        name: input.name,
+        phone: normalizeMsisdn(input.phone) ?? input.phone,
+        email: input.email ?? null,
+        status: input.status ?? RecordStatus.ACTIVE,
+        unitId: unit?.id ?? null,
+        meterId: unit?.meterId ?? null,
+      },
+      select: CUSTOMER_SELECT,
+    });
+    await this.app.auditLog.record({ actorId, action: 'CREATE', subjectType: 'CUSTOMER', subjectId: customer.id, summary: `Added customer ${customer.name}` });
+    return customer;
+  }
+
+  async updateCustomer(landlordId: string, actorId: string, id: string, input: Partial<LandlordCustomerInput>) {
+    const before = await this.ownedCustomer(landlordId, id);
+    const { unitId, phone, ...rest } = input;
+    let link = {};
+    if (unitId !== undefined) {
+      const unit = unitId ? await this.ownedUnit(landlordId, unitId) : null;
+      link = { unitId: unit?.id ?? null, meterId: unit?.meterId ?? null };
+    }
+    const customer = await this.app.prisma.customer.update({
+      where: { id },
+      data: { ...rest, ...(phone ? { phone: normalizeMsisdn(phone) ?? phone } : {}), ...link },
+      select: CUSTOMER_SELECT,
+    });
+    await this.app.auditLog.record({
+      actorId, action: 'UPDATE', subjectType: 'CUSTOMER', subjectId: id, summary: `Updated customer ${customer.name}`, oldValues: before, newValues: customer,
+    });
+    return customer;
+  }
+
+  async removeCustomer(landlordId: string, actorId: string, id: string) {
+    const customer = await this.ownedCustomer(landlordId, id);
+    await this.app.prisma.customer.delete({ where: { id } });
+    await this.app.auditLog.record({ actorId, action: 'DELETE', subjectType: 'CUSTOMER', subjectId: id, summary: `Removed customer ${customer.name}` });
+  }
+
   // ── Tenants ────────────────────────────────────────────────────────────────
 
   private async assertUnit(unitId: string | null | undefined, propertyId: string, landlordId: string) {
@@ -435,8 +562,18 @@ export class PropertyService {
     const tenants = await this.app.prisma.landlordTenant.findMany({
       where: { landlordId, ...(propertyId ? { propertyId } : scopeIds ? { propertyId: { in: scopeIds } } : {}) },
       orderBy: { name: 'asc' },
+      include: {
+        property: { select: { name: true } },
+        unit: { select: { name: true } },
+        leases: { where: { status: 'ACTIVE' }, select: { id: true, code: true }, take: 1 },
+      },
     });
-    return tenants.map(presentTenant);
+    return tenants.map((t) => ({
+      ...presentTenant(t),
+      propertyName: t.property.name,
+      unitName: t.unit?.name ?? null,
+      activeLease: t.leases[0] ?? null,
+    }));
   }
 
   async createTenant(
@@ -466,14 +603,18 @@ export class PropertyService {
     landlordId: string,
     actorId: string,
     id: string,
-    input: { name?: string; phone?: string; email?: string | null; idNumber?: string | null; unitId?: string | null; status?: RecordStatus },
+    input: { name?: string; phone?: string; email?: string | null; idNumber?: string | null; unitId?: string | null; propertyId?: string; status?: RecordStatus },
   ) {
     const tenant = await this.app.prisma.landlordTenant.findUnique({ where: { id } });
     if (!tenant) throw new NotFoundError('Tenant');
     if (tenant.landlordId !== landlordId) throw new ForbiddenError('Access denied.');
-    await this.assertUnit(input.unitId, tenant.propertyId, landlordId);
+    // Moving to another property is allowed; the unit must then be in that property.
+    const propertyId = input.propertyId ?? tenant.propertyId;
+    if (input.propertyId) await this.get(landlordId, input.propertyId);
+    await this.assertUnit(input.unitId, propertyId, landlordId);
+    const data = { ...input, ...(input.propertyId && input.propertyId !== tenant.propertyId && input.unitId === undefined ? { unitId: null } : {}) };
 
-    const updated = await this.app.prisma.landlordTenant.update({ where: { id }, data: input });
+    const updated = await this.app.prisma.landlordTenant.update({ where: { id }, data });
     await this.app.auditLog.record({ actorId, action: 'UPDATE', subjectType: 'TENANT', subjectId: id, summary: `Updated tenant ${updated.name}` });
     return presentTenant(updated);
   }

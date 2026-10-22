@@ -26,7 +26,7 @@ const Ctx = createContext<SheetCtx>({ steps: [], register: () => {} });
  */
 export function FormSheet({
   icon: Icon, title, subtitle, steps = [], onClose, onSubmit, busy, submitLabel = 'Save', submitIcon = true,
-  danger, meta, error, width = 720, children,
+  danger, meta, error, width = 720, readOnly, children,
 }: {
   icon: LucideIcon;
   title: string;
@@ -43,6 +43,8 @@ export function FormSheet({
   meta?: ReactNode;
   error?: string;
   width?: number;
+  /** View only: hides the submit button and relabels Cancel as Close. */
+  readOnly?: boolean;
   children: ReactNode;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -129,10 +131,12 @@ export function FormSheet({
         <footer className="vf-foot">
           <span className="vf-foot-meta">{meta}</span>
           <span className="vf-foot-actions">
-            <button type="button" className="vf-btn vf-btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className={`vf-btn vf-btn-primary${danger ? ' danger' : ''}`} disabled={busy}>
-              {busy ? <AppLoader size={16} /> : <>{submitLabel}{submitIcon && <ArrowRight size={16} />}</>}
-            </button>
+            <button type="button" className="vf-btn vf-btn-ghost" onClick={onClose}>{readOnly ? 'Close' : 'Cancel'}</button>
+            {!readOnly && (
+              <button type="submit" className={`vf-btn vf-btn-primary${danger ? ' danger' : ''}`} disabled={busy}>
+                {busy ? <AppLoader size={16} /> : <>{submitLabel}{submitIcon && <ArrowRight size={16} />}</>}
+              </button>
+            )}
           </span>
         </footer>
       </form>

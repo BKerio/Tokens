@@ -161,6 +161,10 @@ export class LeaseService {
             },
           });
 
+          // The unit is now occupied, and the tenant lives there.
+          await tx.propertyUnit.update({ where: { id: unit.id }, data: { occupancy: 'OCCUPIED', occupancyNote: null } });
+          if (input.tenantId) await tx.landlordTenant.update({ where: { id: tenantId }, data: { unitId: unit.id, propertyId: unit.propertyId } });
+
           if (input.depositReceived && input.depositReceived.amount > 0) {
             await tx.ledgerEntry.create({
               data: {
@@ -249,10 +253,15 @@ export class LeaseService {
       credited += credit;
     }
 
-    await this.app.prisma.lease.update({
-      where: { id },
-      data: { status: LeaseStatus.TERMINATED, nextBillingDate: null, terminatedAt: new Date(), terminationReason: input.reason },
-    });
+    await this.app.prisma.$transaction([
+      this.app.prisma.lease.update({
+        where: { id },
+        data: { status: LeaseStatus.TERMINATED, nextBillingDate: null, terminatedAt: new Date(), terminationReason: input.reason },
+      }),
+      // The tenant has moved out: free the unit and unlink them from it.
+      this.app.prisma.propertyUnit.update({ where: { id: lease.unitId }, data: { occupancy: 'VACANT' } }),
+      this.app.prisma.landlordTenant.updateMany({ where: { id: lease.tenantId, unitId: lease.unitId }, data: { unitId: null } }),
+    ]);
     await this.app.auditLog.record({
       actorId: access.actorId, action: 'UPDATE', subjectType: 'LEASE', subjectId: id,
       summary: `Ended lease ${lease.code} on ${isoDate(input.endDate)} - ${input.reason}${credited ? ` (credited KES ${round2(credited)} unused rent)` : ''}`,

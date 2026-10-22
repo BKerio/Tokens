@@ -8,6 +8,7 @@ export type MeterStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
 export type RecordStatus = 'ACTIVE' | 'INACTIVE';
 export type PropertyType = 'APARTMENT' | 'ESTATE' | 'COMMERCIAL' | 'MIXED_USE' | 'HOSTEL' | 'OTHER';
 export type UnitPaymentMethod = 'MPESA_PAYBILL' | 'MPESA_TILL' | 'BANK';
+export type UnitOccupancy = 'VACANT' | 'OCCUPIED' | 'RESERVED' | 'MAINTENANCE';
 export type PaymentChannel = 'STK' | 'C2B' | 'NCBA';
 export type PaymentStatus = 'PENDING' | 'CONFIRMED' | 'FAILED';
 export type TokenType = 'CREDIT' | 'CLEAR_TAMPER' | 'CLEAR_CREDIT' | 'SET_MAX_OVERDRAFT';
@@ -339,6 +340,30 @@ export interface PropertyUnit {
   depositAmount: number | null;
   payment: UnitPaymentAccount | null;
   activeLease: { id: string; code: string; tenantId: string; tenantName: string; tenantPhone: string } | null;
+  occupancy: UnitOccupancy;
+  occupancyNote: string | null;
+  tenants: PersonRef[];
+  customers: PersonRef[];
+}
+
+export interface PersonRef {
+  id: string;
+  name: string;
+  phone: string;
+}
+
+/** A token-buying customer who belongs to a landlord (linked to a unit, they buy for its meter). */
+export interface LandlordCustomer {
+  id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  status: RecordStatus;
+  createdAt: string;
+  unitId: string | null;
+  meterId: string | null;
+  unit: { id: string; name: string; property: { id: string; name: string } } | null;
+  meter: { meterNumber: string } | null;
 }
 
 export interface Tenant {
@@ -350,6 +375,10 @@ export interface Tenant {
   status: RecordStatus;
   unitId: string | null;
   propertyId: string;
+  /** Present on the landlord's tenant directory. */
+  propertyName?: string;
+  unitName?: string | null;
+  activeLease?: { id: string; code: string } | null;
 }
 
 export interface PropertyDetail {

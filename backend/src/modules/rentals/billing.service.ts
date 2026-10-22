@@ -76,10 +76,20 @@ export class BillingService {
       }
     }
 
-    const ended = await this.app.prisma.lease.updateMany({
+    const expiring = await this.app.prisma.lease.findMany({
       where: { ...owner, status: LeaseStatus.ACTIVE, endDate: { lt: today }, nextBillingDate: null },
-      data: { status: LeaseStatus.ENDED },
+      select: { id: true, unitId: true, tenantId: true },
     });
+    const ended = { count: 0 };
+    for (const l of expiring) {
+      // Fixed-term lease ran out: mark it ended and free the unit.
+      await this.app.prisma.$transaction([
+        this.app.prisma.lease.update({ where: { id: l.id }, data: { status: LeaseStatus.ENDED } }),
+        this.app.prisma.propertyUnit.update({ where: { id: l.unitId }, data: { occupancy: 'VACANT' } }),
+        this.app.prisma.landlordTenant.updateMany({ where: { id: l.tenantId, unitId: l.unitId }, data: { unitId: null } }),
+      ]);
+      ended.count++;
+    }
 
     if (charges || ended.count) this.app.log.info({ leases: due.length, charges, ended: ended.count }, 'Rent billing run complete');
     return { leases: due.length, charges, ended: ended.count };

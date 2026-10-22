@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AppContext } from '../../context.js';
 import { authenticate } from '../../middleware/auth.js';
 import { requireRole } from '../../shared/guards/requireRole.js';
-import { PropertyType, RecordStatus, UnitPaymentMethod } from '../../shared/types/index.js';
+import { PropertyType, RecordStatus, UnitOccupancy, UnitPaymentMethod } from '../../shared/types/index.js';
 import { ForbiddenError, NotFoundError } from '../../shared/errors/AppError.js';
 import { nullableString, optionalString, parse } from '../../shared/utils/validation.js';
 import { LANDLORD_ORG_ROLES, assertCan, assertProperty, landlordAccess, type LandlordPermission } from '../rentals/access.js';
@@ -69,7 +69,22 @@ const unitSchema = z.object({
   ...unitFields,
 });
 
-const unitUpdateSchema = z.object({ name: z.string().trim().min(1).max(255).optional(), ...unitFields });
+const unitUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(255).optional(),
+  ...unitFields,
+  occupancy: z.enum(UnitOccupancy).optional(),
+  occupancyNote: z.union([z.string().trim().max(300), z.null()]).transform((v) => v || null).optional(),
+  tenantIds: z.array(z.string().min(1)).max(20).optional(),
+  customerIds: z.array(z.string().min(1)).max(20).optional(),
+});
+
+const customerSchema = z.object({
+  name: z.string().trim().min(2, 'Customer name is required').max(255),
+  phone: z.string().trim().min(9, 'Phone is required').max(30),
+  email: z.union([z.string().trim().email(), z.literal(''), z.null()]).transform((v) => v || null).optional(),
+  unitId: z.union([z.string().min(1), z.null()]).optional(),
+  status: z.enum(RecordStatus).optional(),
+});
 
 const bulkUnitsSchema = z.object({
   count: z.coerce.number().int().min(1).max(200),
@@ -93,7 +108,7 @@ const tenantSchema = z.object({
   status: z.enum(RecordStatus).optional(),
 });
 
-const tenantUpdateSchema = tenantSchema.omit({ propertyId: true }).partial();
+const tenantUpdateSchema = tenantSchema.partial();
 
 type Params = { Params: { id: string } };
 
@@ -199,8 +214,11 @@ export async function propertyRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.patch<Params>('/units/:id', async (req) => {
-    const { landlordId, actorId } = await who(req, 'properties.manage', await propertyOf('unit', req.params.id));
-    return { ok: true, data: await service.updateUnit(landlordId, actorId, req.params.id, parse(unitUpdateSchema, req.body)) };
+    const propertyId = await propertyOf('unit', req.params.id);
+    const { landlordId, actorId, access } = await who(req, 'properties.manage', propertyId);
+    const input = parse(unitUpdateSchema, req.body);
+    if (input.tenantIds || input.customerIds) assertCan(access, 'tenants.manage');
+    return { ok: true, data: await service.updateUnit(landlordId, actorId, req.params.id, input) };
   });
 
   app.put<Params>('/units/:id/meter', async (req) => {
@@ -214,6 +232,35 @@ export async function propertyRoutes(app: FastifyInstance, ctx: AppContext) {
     const { landlordId, actorId } = await who(req, 'properties.manage', await propertyOf('unit', req.params.id));
     await service.removeUnit(landlordId, actorId, req.params.id);
     return { ok: true, message: 'Unit deleted' };
+  });
+
+  // ── Customers (token buyers living in the landlord's units) ───────────────
+  app.get('/customers', async (req) => {
+    const { landlordId, access } = await who(req, 'tenants.view');
+    return { ok: true, data: await service.listCustomers(landlordId, access.allProperties ? undefined : access.propertyIds) };
+  });
+
+  app.post('/customers', async (req, reply) => {
+    const input = parse(customerSchema, req.body);
+    const access = await landlordAccess(ctx, req);
+    const { landlordId, actorId } = await who(req, 'tenants.manage', await service.unitProperty(access.landlordId, input.unitId));
+    if (!input.unitId && !access.allProperties) throw new ForbiddenError('Link the customer to one of your units.');
+    return reply.status(201).send({ ok: true, message: 'Customer added', data: await service.createCustomer(landlordId, actorId, input) });
+  });
+
+  app.patch<Params>('/customers/:id', async (req) => {
+    const input = parse(customerSchema.partial(), req.body);
+    const access = await landlordAccess(ctx, req);
+    await who(req, 'tenants.manage', await service.customerProperty(access.landlordId, req.params.id));
+    const { landlordId, actorId } = await who(req, 'tenants.manage', await service.unitProperty(access.landlordId, input.unitId));
+    return { ok: true, data: await service.updateCustomer(landlordId, actorId, req.params.id, input) };
+  });
+
+  app.delete<Params>('/customers/:id', async (req) => {
+    const access = await landlordAccess(ctx, req);
+    const { landlordId, actorId } = await who(req, 'tenants.manage', await service.customerProperty(access.landlordId, req.params.id));
+    await service.removeCustomer(landlordId, actorId, req.params.id);
+    return { ok: true, message: 'Customer removed' };
   });
 
   // ── Tenants ────────────────────────────────────────────────────────────────
@@ -230,8 +277,10 @@ export async function propertyRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.patch<Params>('/tenants/:id', async (req) => {
+    const input = parse(tenantUpdateSchema, req.body);
     const { landlordId, actorId } = await who(req, 'tenants.manage', await propertyOf('tenant', req.params.id));
-    return { ok: true, data: await service.updateTenant(landlordId, actorId, req.params.id, parse(tenantUpdateSchema, req.body)) };
+    if (input.propertyId) await who(req, 'tenants.manage', input.propertyId);
+    return { ok: true, data: await service.updateTenant(landlordId, actorId, req.params.id, input) };
   });
 
   app.delete<Params>('/tenants/:id', async (req) => {

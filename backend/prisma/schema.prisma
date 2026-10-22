@@ -103,6 +103,14 @@ enum PropertyType {
   OTHER
 }
 
+// What is happening with a unit right now. An active lease always means OCCUPIED.
+enum UnitOccupancy {
+  VACANT
+  OCCUPIED
+  RESERVED
+  MAINTENANCE
+}
+
 // How a unit's tenant pays rent.
 enum UnitPaymentMethod {
   MPESA_PAYBILL
@@ -270,6 +278,7 @@ model Landlord {
   properties        Property[]
   units             PropertyUnit[]
   tenants           LandlordTenant[]
+  customers         Customer[]
   tokenTransactions TokenTransaction[]
   locations         PropertyLocation[]
   leases            Lease[]
@@ -339,10 +348,15 @@ model Customer {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  vendorId String? @map("vendor_id")
-  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  meterId  String? @map("meter_id")
-  meter    Meter?  @relation(fields: [meterId], references: [id], onDelete: SetNull)
+  vendorId   String?       @map("vendor_id")
+  vendor     Vendor?       @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  meterId    String?       @map("meter_id")
+  meter      Meter?        @relation(fields: [meterId], references: [id], onDelete: SetNull)
+  // Landlord-owned customers (token buyers in a unit) instead of a vendor's; linked to a unit uses its meter.
+  landlordId String?       @map("landlord_id")
+  landlord   Landlord?     @relation(fields: [landlordId], references: [id], onDelete: SetNull)
+  unitId     String?       @map("unit_id")
+  unit       PropertyUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
 
   countyId       Int?          @map("county_id")
   county         County?       @relation(fields: [countyId], references: [id], onDelete: SetNull)
@@ -356,6 +370,8 @@ model Customer {
   @@index([phone])
   @@index([vendorId])
   @@index([meterId])
+  @@index([landlordId])
+  @@index([unitId])
   @@map("customers")
 }
 
@@ -646,10 +662,12 @@ model PropertyLocation {
 
 // A rentable unit of a property. A meter can be linked to at most one unit.
 model PropertyUnit {
-  id         String       @id @default(uuid())
-  name       String
-  unitNumber String?      @map("unit_number")
-  status     RecordStatus @default(ACTIVE)
+  id            String        @id @default(uuid())
+  name          String
+  unitNumber    String?       @map("unit_number")
+  status        RecordStatus  @default(ACTIVE)
+  occupancy     UnitOccupancy @default(VACANT)
+  occupancyNote String?       @map("occupancy_note")
 
   legacyMongoId String? @unique @map("legacy_mongo_id")
 
@@ -675,6 +693,7 @@ model PropertyUnit {
   paymentAccountName String?            @map("payment_account_name")
 
   tenants       LandlordTenant[]
+  customers     Customer[]
   leases        Lease[]
   ledgerEntries LedgerEntry[]
 

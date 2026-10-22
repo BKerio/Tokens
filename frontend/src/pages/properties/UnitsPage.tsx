@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Coins, DoorOpen, Home, MapPin, Minus, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
-import { applyPaymentAccount, assignUnitMeter, createUnit, createUnitsBulk, deleteUnit, getPropertyUnits, listProperties, updateUnit } from '@/api/properties';
+import { DoorOpen, Eye, Gauge, Home, LayoutGrid, List, MapPin, Minus, Plus, Trash2, Wallet } from 'lucide-react';
+import { applyPaymentAccount, createUnit, createUnitsBulk, deleteUnit, getPropertyUnits, listProperties } from '@/api/properties';
 import { errorMessage } from '@/api/client';
 import { useLandlordAccess } from '@/hooks/useLandlordAccess';
 import { confirmDialog, notify } from '@/lib/alert';
 import { humanize } from '@/lib/format';
-import { AmountInput, ChoiceChips, ChoiceTiles, FormSheet, SheetField, SheetGrid, SheetNote, SheetSection, type SheetStep } from '@/components/shared/FormSheet';
+import { ChoiceChips, ChoiceTiles, FormSheet, SheetField, SheetGrid, SheetSection } from '@/components/shared/FormSheet';
 import { EmptyState, LoadingBlock, PageHeader, SearchInput } from '@/components/shared/ui';
 import { fmtKes } from '@/lib/format';
-import type { PropertyUnit, RecordStatus } from '@/types/api';
-import { PaymentAccountFields, PaymentChip, emptyDraft, paymentError, toPayment, type PaymentDraft } from './paymentAccount';
-
-const money = (n: number | null) => (n === null ? '' : String(n));
-const parseMoney = (v: string) => (v.trim() === '' ? null : Number(v));
+import type { PropertyUnit, UnitOccupancy } from '@/types/api';
+import LeaseFormModal from '@/pages/rentals/LeaseFormModal';
+import { PaymentAccountFields, PaymentChip, emptyDraft, paymentError, paymentSummary, toPayment, type PaymentDraft } from './paymentAccount';
+import UnitSheet, { OCCUPANCY } from './UnitSheet';
 
 function useRefresh(propertyId: string) {
   const queryClient = useQueryClient();
@@ -104,113 +103,6 @@ function AddUnitsModal({ propertyId, nextNumber, onClose }: { propertyId: string
   );
 }
 
-/** Full editor for one unit: details, rent and deposit, and where its tenant pays. */
-function UnitModal({ unit, propertyId, onClose }: { unit: PropertyUnit; propertyId: string; onClose: () => void }) {
-  const refresh = useRefresh(propertyId);
-  const [name, setName] = useState(unit.name);
-  const [unitNumber, setUnitNumber] = useState(unit.unitNumber ?? '');
-  const [status, setStatus] = useState<RecordStatus>(unit.status);
-  const [rent, setRent] = useState(money(unit.monthlyRent));
-  const [deposit, setDeposit] = useState(money(unit.depositAmount));
-  const [hasPayment, setHasPayment] = useState(!!unit.payment);
-  const [draft, setDraft] = useState<PaymentDraft>(emptyDraft(unit.payment));
-  const [tried, setTried] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const rentN = Number(rent) || 0;
-  const depositN = Number(deposit) || 0;
-  const payProblem = hasPayment ? paymentError(draft) : null;
-  const steps: SheetStep[] = [
-    { id: 'details', title: 'Details', Icon: DoorOpen, done: !!name.trim() },
-    { id: 'rent', title: 'Rent & deposit', Icon: Coins, done: rentN > 0 },
-    { id: 'payment', title: 'Payment account', Icon: Wallet, done: hasPayment && !payProblem },
-  ];
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setTried(true);
-    if (!name.trim() || payProblem) return;
-    setBusy(true);
-    try {
-      await updateUnit(unit.id, {
-        name: name.trim(),
-        unitNumber: unitNumber.trim() || null,
-        status,
-        monthlyRent: parseMoney(rent),
-        depositAmount: parseMoney(deposit),
-        payment: hasPayment ? toPayment(draft) : null,
-      });
-      notify('success', `${name.trim()} saved`);
-      refresh();
-      onClose();
-    } catch (err) {
-      notify('error', 'Could not save unit', errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const depositPresets = rentN > 0
-    ? [1, 2, 3].map((m) => ({ label: `${m}× rent · ${fmtKes(rentN * m)}`, amount: rentN * m }))
-    : [];
-
-  return (
-    <FormSheet
-      icon={DoorOpen}
-      title={`Edit ${unit.name}`}
-      subtitle={unit.activeLease
-        ? <>Let to <b style={{ color: 'var(--ink)' }}>{unit.activeLease.tenantName}</b>. Rent changes here apply to new leases; edit the lease to change what this tenant pays.</>
-        : 'Rent and deposit here pre-fill the next lease for this unit.'}
-      steps={steps}
-      width={680}
-      onClose={onClose}
-      onSubmit={submit}
-      busy={busy}
-      submitLabel="Save unit"
-      meta={<><Coins size={15} /> <b>{rentN ? `${fmtKes(rentN)} /mo` : 'No rent set'}</b>{depositN > 0 && <> · deposit {fmtKes(depositN)}</>}</>}
-    >
-      <SheetSection id="details">
-        <SheetGrid>
-          <SheetField label="Unit name" required error={tried && !name.trim() ? 'Enter the unit name' : undefined}>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          </SheetField>
-          <SheetField label="Unit number" aside="Optional">
-            <input className="input mono" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} />
-          </SheetField>
-        </SheetGrid>
-        <div className="vf-field">
-          <span className="vf-label">Status</span>
-          <ChoiceChips value={status} onChange={setStatus} label="Status" options={[{ value: 'ACTIVE', label: 'Active', tone: 'ok' }, { value: 'INACTIVE', label: 'Inactive', tone: 'warn' }]} />
-        </div>
-      </SheetSection>
-
-      <SheetSection id="rent">
-        <div className="vf-field">
-          <span className="vf-label-row"><span className="vf-label">Monthly rent</span><small>Per month, before any charges</small></span>
-          <AmountInput value={rent} onChange={setRent} label="Monthly rent" />
-        </div>
-        <div className="vf-field">
-          <span className="vf-label-row"><span className="vf-label">Deposit</span><small>Held as security, refundable</small></span>
-          <AmountInput value={deposit} onChange={setDeposit} label="Deposit" presets={depositPresets} />
-        </div>
-        {rentN > 0 && (
-          <SheetNote>
-            A new tenant would pay <b>{fmtKes(rentN + depositN)}</b> to move in: first month’s rent {fmtKes(rentN)}{depositN > 0 && <> + deposit {fmtKes(depositN)}</>}.
-          </SheetNote>
-        )}
-      </SheetSection>
-
-      <SheetSection id="payment">
-        <label className={`fs-check${hasPayment ? ' on' : ''}`}>
-          <input type="checkbox" checked={hasPayment} onChange={(e) => setHasPayment(e.target.checked)} />
-          <span><b>Tenants of this unit pay into a specific account</b><small>Shown on statements and receipts so tenants know where to send rent.</small></span>
-        </label>
-        {hasPayment && <PaymentAccountFields value={draft} onChange={setDraft} errors={tried ? payProblem : null} />}
-      </SheetSection>
-    </FormSheet>
-  );
-}
-
 /** One payment account copied onto every unit (or only units that don't have one yet). */
 function ApplyPaymentModal({ propertyId, propertyName, missing, total, onClose }: { propertyId: string; propertyName: string; missing: number; total: number; onClose: () => void }) {
   const refresh = useRefresh(propertyId);
@@ -273,54 +165,64 @@ function ApplyPaymentModal({ propertyId, propertyName, missing, total, onClose }
   );
 }
 
-/** Rent / deposit input that saves on blur. */
-function MoneyCell({ unit, field, propertyId, disabled }: { unit: PropertyUnit; field: 'monthlyRent' | 'depositAmount'; propertyId: string; disabled: boolean }) {
-  const refresh = useRefresh(propertyId);
-  const value = unit[field];
-  const [draft, setDraft] = useState(money(value));
-  const [saving, setSaving] = useState(false);
-  useEffect(() => setDraft(money(value)), [value]);
+type Filter = 'ALL' | UnitOccupancy | 'NO_PAYMENT';
+const ORDER: UnitOccupancy[] = ['OCCUPIED', 'VACANT', 'RESERVED', 'MAINTENANCE'];
 
-  const commit = async () => {
-    const next = parseMoney(draft);
-    if (next === value || (next !== null && Number.isNaN(next))) return;
-    setSaving(true);
-    try {
-      await updateUnit(unit.id, { [field]: next });
-      refresh();
-    } catch (err) {
-      notify('error', 'Could not save', errorMessage(err));
-      setDraft(money(value));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <input
-      className="input mono un-money"
-      style={{ opacity: saving ? 0.6 : 1 }}
-      inputMode="decimal"
-      placeholder="-"
-      disabled={disabled}
-      aria-label={`${field === 'monthlyRent' ? 'Monthly rent' : 'Deposit'} for ${unit.name}`}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value.replace(/[^\d.]/g, ''))}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-    />
-  );
+/** Who to show on a unit: the lease tenant, else linked tenants / customers. */
+function occupantOf(u: PropertyUnit): { name: string; detail: string } | null {
+  if (u.activeLease) return { name: u.activeLease.tenantName, detail: `Lease ${u.activeLease.code}` };
+  const people = [...u.tenants, ...u.customers];
+  if (!people.length) return null;
+  const kind = u.tenants.length ? 'Tenant' : 'Customer';
+  return { name: people[0]!.name, detail: people.length > 1 ? `+${people.length - 1} more` : kind };
 }
 
-type Filter = 'ALL' | 'VACANT' | 'LET' | 'NO_PAYMENT';
+function UnitCard({ u, onOpen, onDelete }: { u: PropertyUnit; onOpen: () => void; onDelete?: () => void }) {
+  const occ = OCCUPANCY[u.occupancy];
+  const person = occupantOf(u);
+  return (
+    <div className={`uc-card ${u.occupancy}${u.status === 'INACTIVE' ? ' inactive' : ''}`}>
+      <button type="button" className="uc-main" onClick={onOpen} aria-label={`View ${u.name}`}>
+        <span className="uc-top">
+          <span className="uc-name"><b>{u.name}</b><small>{u.unitNumber ? `No. ${u.unitNumber}` : 'No number'}{u.status === 'INACTIVE' ? ' · Inactive' : ''}</small></span>
+          <span className={`uc-occ ${u.occupancy}`}><occ.Icon size={13} /> {occ.label}</span>
+        </span>
+        <span className="uc-person">
+          {person ? (
+            <><span className="uc-av">{person.name.slice(0, 1).toUpperCase()}</span><span><b>{person.name}</b><small>{person.detail}</small></span></>
+          ) : (
+            <span className="uc-empty">{u.occupancyNote || (u.occupancy === 'VACANT' ? 'Ready for a tenant' : 'No one linked')}</span>
+          )}
+        </span>
+        <span className="uc-rent">
+          {u.monthlyRent ? <><b>{fmtKes(u.monthlyRent)}</b><small>/mo{u.depositAmount ? ` · deposit ${fmtKes(u.depositAmount)}` : ''}</small></> : <small className="uc-missing">No rent set</small>}
+        </span>
+        <span className="uc-foot">
+          <span className={u.payment ? '' : 'warn'}><Wallet size={13} /> {u.payment ? paymentSummary(u.payment).title : 'No payment account'}</span>
+          <span className={u.meterNumber ? '' : 'muted'}><Gauge size={13} /> {u.meterNumber ?? 'No meter'}</span>
+        </span>
+      </button>
+      <span className="uc-actions">
+        <button type="button" className="uc-view" onClick={onOpen}><Eye size={14} /> View</button>
+        {onDelete && <button type="button" className="uc-del" title="Delete unit" onClick={onDelete}><Trash2 size={14} /></button>}
+      </span>
+    </div>
+  );
+}
 
 function UnitsPage() {
   const [params, setParams] = useSearchParams();
   const { can } = useLandlordAccess();
   const manage = can('properties.manage');
-  const [dialog, setDialog] = useState<'add' | 'payment' | PropertyUnit | null>(null);
+  const [dialog, setDialog] = useState<'add' | 'payment' | null>(null);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const [leaseFor, setLeaseFor] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [search, setSearch] = useState('');
+  const [layout, setLayout] = useState<'grid' | 'list'>(() => {
+    try { return localStorage.getItem('units-layout') === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
+  });
+  const switchLayout = (l: 'grid' | 'list') => { setLayout(l); try { localStorage.setItem('units-layout', l); } catch { /* ignore */ } };
 
   const { data: properties = [], isLoading: propsLoading } = useQuery({ queryKey: ['properties', ''], queryFn: () => listProperties() });
   const propertyId = params.get('property') ?? '';
@@ -330,12 +232,6 @@ function UnitsPage() {
 
   const { data, isLoading } = useQuery({ queryKey: ['property-units', propertyId], queryFn: () => getPropertyUnits(propertyId), enabled: !!propertyId });
   const refresh = useRefresh(propertyId);
-
-  const assign = useMutation({
-    mutationFn: ({ id, meterId }: { id: string; meterId: string | null }) => assignUnitMeter(id, meterId),
-    onSuccess: () => { refresh(); notify('success', 'Meter link updated'); },
-    onError: (err) => notify('error', 'Could not link meter', errorMessage(err)),
-  });
   const remove = useMutation({
     mutationFn: deleteUnit,
     onSuccess: () => { refresh(); notify('success', 'Unit deleted'); },
@@ -343,20 +239,33 @@ function UnitsPage() {
   });
 
   const units = data?.units ?? [];
-  const stats = useMemo(() => ({
-    let: units.filter((u) => u.activeLease).length,
-    withPayment: units.filter((u) => u.payment).length,
-    rentRoll: units.reduce((sum, u) => sum + (u.monthlyRent ?? 0), 0),
-  }), [units]);
+  const property = data?.property;
+  const counts = useMemo(() => {
+    const c: Record<UnitOccupancy, number> = { OCCUPIED: 0, VACANT: 0, RESERVED: 0, MAINTENANCE: 0 };
+    for (const u of units) c[u.occupancy]++;
+    return c;
+  }, [units]);
+  const withPayment = units.filter((u) => u.payment).length;
+  const missing = units.length - withPayment;
+  const rentRoll = units.reduce((sum, u) => sum + (u.activeLease || u.occupancy === 'OCCUPIED' ? u.monthlyRent ?? 0 : 0), 0);
+  const potential = units.reduce((sum, u) => sum + (u.monthlyRent ?? 0), 0);
+  const occupancyRate = units.length ? Math.round((counts.OCCUPIED / units.length) * 100) : 0;
+
   const shown = units.filter((u) => {
-    if (filter === 'VACANT' && u.activeLease) return false;
-    if (filter === 'LET' && !u.activeLease) return false;
     if (filter === 'NO_PAYMENT' && u.payment) return false;
+    if (filter !== 'ALL' && filter !== 'NO_PAYMENT' && u.occupancy !== filter) return false;
     const q = search.trim().toLowerCase();
-    return !q || u.name.toLowerCase().includes(q) || (u.unitNumber ?? '').toLowerCase().includes(q) || (u.activeLease?.tenantName ?? '').toLowerCase().includes(q);
+    if (!q) return true;
+    const people = [u.activeLease?.tenantName, ...u.tenants.map((t) => t.name), ...u.customers.map((c) => c.name)].filter(Boolean).join(' ').toLowerCase();
+    return u.name.toLowerCase().includes(q) || (u.unitNumber ?? '').toLowerCase().includes(q) || people.includes(q) || (u.meterNumber ?? '').includes(q);
   });
-  const linked = new Map(units.filter((u) => u.meterId).map((u) => [u.meterId!, u.name]));
+  const unitsByMeter = new Map(units.filter((u) => u.meterId).map((u) => [u.meterId!, u.name]));
   const nextNumber = units.reduce((max, u) => Math.max(max, Number.parseInt(u.unitNumber ?? '', 10) || 0), 0) + 1;
+  const viewingUnit = units.find((u) => u.id === viewing);
+
+  const askDelete = async (u: PropertyUnit) => {
+    if (await confirmDialog({ title: 'Delete this unit?', subject: { name: u.name, detail: property ? `${property.name} · ${units.length - 1} units after` : undefined, icon: 'door' }, removes: ['The unit and its rent and payment settings'], keeps: u.meterNumber ? [`Meter ${u.meterNumber} (unlinked)`] : undefined, irreversible: true, confirmLabel: 'Delete unit', danger: true })) remove.mutate(u.id);
+  };
 
   if (propsLoading) return <LoadingBlock />;
   if (properties.length === 0) {
@@ -371,15 +280,12 @@ function UnitsPage() {
     );
   }
 
-  const property = data?.property;
-  const missing = units.length - stats.withPayment;
-
   return (
     <div className="col" style={{ gap: 20 }}>
       <PageHeader
         eyebrow="Properties"
         title="Units"
-        subtitle="Set each unit’s rent, deposit, payment account and meter."
+        subtitle="See who is in each unit at a glance. Open a unit to change its status, occupants, rent, payment account or meter."
         actions={
           <>
             <select className="eoc-select" value={propertyId} onChange={(e) => setParams({ property: e.target.value })} aria-label="Property">
@@ -393,24 +299,37 @@ function UnitsPage() {
 
       {isLoading || !data || !property ? <LoadingBlock /> : (
         <>
-          <div className="card un-head">
-            <div className="un-head-main">
+          <div className="card ub-hero">
+            <div className="ub-hero-main">
               <span className="un-head-ico"><Home size={22} /></span>
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <h3>{property.name}</h3>
                 <p>
                   <span className="pill pill-gray">{humanize(property.propertyType)}</span>
-                  {property.locationGroup && <span className="pill pill-blue">{property.locationGroup.name}</span>}
-                  <span className="un-addr"><MapPin size={13} /> {property.location}</span>
+                  <span className="un-addr"><MapPin size={13} /> {[property.location, property.ward?.name, property.county?.name].filter(Boolean).join(', ')}</span>
                 </p>
               </div>
+              <div className="ub-rate" aria-label={`${occupancyRate}% occupied`}>
+                <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" className="track" /><circle cx="18" cy="18" r="15.9" className="fill" strokeDasharray={`${occupancyRate} 100`} /></svg>
+                <span><b>{occupancyRate}%</b><small>occupied</small></span>
+              </div>
             </div>
-            <div className="un-stats">
-              <div><small>Units</small><b>{units.length}</b></div>
-              <div><small>Let</small><b>{stats.let}</b></div>
-              <div><small>Vacant</small><b>{units.length - stats.let}</b></div>
-              <div className={missing ? 'warn' : ''}><small>Payment accounts</small><b>{stats.withPayment}/{units.length}</b></div>
-              <div><small>Rent roll /mo</small><b>{stats.rentRoll.toLocaleString('en-KE')}</b></div>
+
+            <div className="ub-bar" role="img" aria-label="Units by status">
+              {ORDER.map((o) => counts[o] > 0 && <i key={o} className={o} style={{ flexGrow: counts[o] }} title={`${OCCUPANCY[o].label}: ${counts[o]}`} />)}
+              {units.length === 0 && <i className="none" style={{ flexGrow: 1 }} />}
+            </div>
+            <div className="ub-legend">
+              {ORDER.map((o) => (
+                <button key={o} type="button" className={`ub-leg ${o}${filter === o ? ' on' : ''}`} onClick={() => setFilter(filter === o ? 'ALL' : o)}>
+                  <i /> {OCCUPANCY[o].label} <b>{counts[o]}</b>
+                </button>
+              ))}
+              <span className="ub-money">
+                <span><small>Rent roll</small><b>{fmtKes(rentRoll)}<em>/mo</em></b></span>
+                <span><small>If fully let</small><b>{fmtKes(potential)}<em>/mo</em></b></span>
+                <span className={missing ? 'warn' : ''}><small>Payment accounts</small><b>{withPayment}/{units.length}</b></span>
+              </span>
             </div>
           </div>
 
@@ -425,62 +344,52 @@ function UnitsPage() {
           <div className="card">
             <div className="card-pad un-toolbar">
               <div className="seg">
-                {([['ALL', `All ${units.length}`], ['VACANT', 'Vacant'], ['LET', 'Let'], ['NO_PAYMENT', 'No payment account']] as [Filter, string][]).map(([f, label]) => (
+                {([['ALL', `All ${units.length}`], ['OCCUPIED', 'Occupied'], ['VACANT', 'Vacant'], ['RESERVED', 'Reserved'], ['MAINTENANCE', 'Maintenance'], ['NO_PAYMENT', 'No payment account']] as [Filter, string][]).map(([f, label]) => (
                   <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>{label}</button>
                 ))}
               </div>
-              <SearchInput value={search} onChange={setSearch} placeholder="Search unit or tenant…" />
+              <div className="flex items-center gap-2">
+                <SearchInput value={search} onChange={setSearch} placeholder="Search unit, person or meter…" />
+                <div className="seg" aria-label="Layout">
+                  <button className={layout === 'grid' ? 'on' : ''} onClick={() => switchLayout('grid')} title="Cards"><LayoutGrid size={15} /></button>
+                  <button className={layout === 'list' ? 'on' : ''} onClick={() => switchLayout('list')} title="List"><List size={15} /></button>
+                </div>
+              </div>
             </div>
+
             {units.length === 0 ? (
               <EmptyState icon={<DoorOpen size={28} />} title="No units yet" action={manage ? <button className="btn btn-primary btn-sm" onClick={() => setDialog('add')}>Add units</button> : undefined} />
             ) : shown.length === 0 ? (
-              <EmptyState title="No units match" />
+              <EmptyState title="No units match" hint="Try another filter or search." />
+            ) : layout === 'grid' ? (
+              <div className="uc-grid">
+                {shown.map((u) => (
+                  <UnitCard key={u.id} u={u} onOpen={() => setViewing(u.id)} onDelete={manage && !u.activeLease ? () => askDelete(u) : undefined} />
+                ))}
+              </div>
             ) : (
               <div className="tbl-wrap">
                 <table className="tbl un-table">
-                  <thead><tr>{['Unit', 'Occupancy', 'Rent /mo', 'Deposit', 'Payment account', 'Meter', ''].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                  <thead><tr>{['Unit', 'Status', 'Occupant', 'Rent /mo', 'Payment account', 'Meter', ''].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                   <tbody>
-                    {shown.map((u) => (
-                      <tr key={u.id} className={u.status === 'INACTIVE' ? 'un-inactive' : ''}>
-                        <td>
-                          <span className="rn-strong">{u.name}</span>
-                          <span className="rn-sub">{u.unitNumber ? `No. ${u.unitNumber}` : 'No number'}{u.status === 'INACTIVE' ? ' · Inactive' : ''}</span>
-                        </td>
-                        <td>
-                          {u.activeLease ? (
-                            <Link className="un-tenant" to={`/landlord/leases?lease=${u.activeLease.id}`}>
-                              <span className="pill pill-green">Let</span>
-                              <span><b>{u.activeLease.tenantName}</b><small>{u.activeLease.code}</small></span>
-                            </Link>
-                          ) : <span className="pill pill-gray">Vacant</span>}
-                        </td>
-                        <td><MoneyCell unit={u} field="monthlyRent" propertyId={propertyId} disabled={!manage} /></td>
-                        <td><MoneyCell unit={u} field="depositAmount" propertyId={propertyId} disabled={!manage} /></td>
-                        <td>
-                          {u.payment ? (
-                            manage ? <button className="un-pay-btn" onClick={() => setDialog(u)} title="Change payment account"><PaymentChip payment={u.payment} /></button> : <PaymentChip payment={u.payment} />
-                          ) : manage ? (
-                            <button className="un-pay-add" onClick={() => setDialog(u)}><Plus size={14} /> Add account</button>
-                          ) : <span className="rn-muted">Not set</span>}
-                        </td>
-                        <td>
-                          <select className="eoc-select un-meter" value={u.meterId ?? ''} disabled={!manage || assign.isPending} onChange={(e) => assign.mutate({ id: u.id, meterId: e.target.value || null })} aria-label={`Meter for ${u.name}`}>
-                            <option value="">No meter</option>
-                            {data.assignedMeters.map((m) => (
-                              <option key={m.id} value={m.id}>{m.meterNumber}{linked.has(m.id) && linked.get(m.id) !== u.name ? ` (on ${linked.get(m.id)})` : ''}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          {manage && <button className="icon-btn" title="Edit unit" onClick={() => setDialog(u)}><Pencil size={14} /></button>}
-                          {manage && !u.activeLease && (
-                            <button className="icon-btn" title="Delete unit" onClick={async () => {
-                              if (await confirmDialog({ title: 'Delete this unit?', subject: { name: u.name, detail: property ? `${property.name} · ${units.length - 1} units after` : undefined, icon: 'door' }, removes: ['The unit and its rent and payment settings'], keeps: u.meterNumber ? [`Meter ${u.meterNumber} (unlinked)`] : undefined, irreversible: true, confirmLabel: 'Delete unit', danger: true })) remove.mutate(u.id);
-                            }}><Trash2 size={14} /></button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {shown.map((u) => {
+                      const occ = OCCUPANCY[u.occupancy];
+                      const person = occupantOf(u);
+                      return (
+                        <tr key={u.id} className={u.status === 'INACTIVE' ? 'un-inactive' : ''} onClick={() => setViewing(u.id)} style={{ cursor: 'pointer' }}>
+                          <td><span className="rn-strong">{u.name}</span><span className="rn-sub">{u.unitNumber ? `No. ${u.unitNumber}` : 'No number'}</span></td>
+                          <td><span className={`uc-occ ${u.occupancy}`}><occ.Icon size={13} /> {occ.label}</span></td>
+                          <td>{person ? <><span className="rn-strong">{person.name}</span><span className="rn-sub">{person.detail}</span></> : <span className="rn-muted">-</span>}</td>
+                          <td className="mono">{u.monthlyRent ? fmtKes(u.monthlyRent) : '-'}</td>
+                          <td>{u.payment ? <PaymentChip payment={u.payment} /> : <span className="uc-missing">Not set</span>}</td>
+                          <td className="mono">{u.meterNumber ?? '-'}</td>
+                          <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                            <button className="uc-view" onClick={() => setViewing(u.id)}><Eye size={14} /> View</button>
+                            {manage && !u.activeLease && <button className="icon-btn" title="Delete unit" onClick={() => askDelete(u)}><Trash2 size={14} /></button>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -493,7 +402,21 @@ function UnitsPage() {
       {dialog === 'payment' && property && (
         <ApplyPaymentModal propertyId={propertyId} propertyName={property.name} missing={missing} total={units.length} onClose={() => setDialog(null)} />
       )}
-      {dialog && typeof dialog === 'object' && <UnitModal unit={dialog} propertyId={propertyId} onClose={() => setDialog(null)} />}
+      {viewingUnit && property && data && (
+        <UnitSheet
+          key={viewingUnit.id}
+          unit={viewingUnit}
+          propertyId={propertyId}
+          propertyName={property.name}
+          meters={data.assignedMeters}
+          unitsByMeter={unitsByMeter}
+          canManage={manage}
+          canPeople={can('tenants.manage')}
+          onClose={() => setViewing(null)}
+          onCreateLease={() => { setLeaseFor(viewingUnit.id); setViewing(null); }}
+        />
+      )}
+      {leaseFor && <LeaseFormModal presetUnitId={leaseFor} onClose={() => setLeaseFor(null)} onCreated={() => refresh()} />}
     </div>
   );
 }

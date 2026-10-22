@@ -1,5 +1,5 @@
 import api from '@/api/client';
-import type { Property, PropertyDetail, PropertyType, PropertyUnit, RecordStatus, Tenant, UnitPaymentAccount } from '@/types/api';
+import type { LandlordCustomer, Property, PropertyDetail, PropertyType, PropertyUnit, RecordStatus, Tenant, UnitOccupancy, UnitPaymentAccount } from '@/types/api';
 
 export interface PropertyInput {
   name: string;
@@ -21,6 +21,11 @@ export interface UnitInput {
   depositAmount?: number | null;
   /** null clears the payment account; leave out to keep it. */
   payment?: UnitPaymentAccount | null;
+  occupancy?: UnitOccupancy;
+  occupancyNote?: string | null;
+  /** Replaces the tenants / customers linked to the unit. */
+  tenantIds?: string[];
+  customerIds?: string[];
 }
 
 export async function listProperties(search?: string): Promise<Property[]> {
@@ -80,15 +85,46 @@ export async function deleteUnit(id: string): Promise<void> {
 }
 
 export async function createTenant(data: {
-  propertyId: string; name: string; phone: string; email?: string | null; idNumber?: string | null; unitId?: string | null;
+  propertyId: string; name: string; phone: string; email?: string | null; idNumber?: string | null; unitId?: string | null; status?: RecordStatus;
 }): Promise<Tenant> {
   return (await api.post('/landlord/tenants', data)).data.data;
 }
 
-export async function updateTenant(id: string, data: { name?: string; phone?: string; email?: string | null; idNumber?: string | null; unitId?: string | null; status?: RecordStatus }): Promise<Tenant> {
+export async function updateTenant(id: string, data: { name?: string; phone?: string; email?: string | null; idNumber?: string | null; propertyId?: string; unitId?: string | null; status?: RecordStatus }): Promise<Tenant> {
   return (await api.patch(`/landlord/tenants/${id}`, data)).data.data;
 }
 
 export async function deleteTenant(id: string): Promise<void> {
   await api.delete(`/landlord/tenants/${id}`);
+}
+
+// ── People: tenants & customers ─────────────────────────────────────────────
+
+export async function listTenants(): Promise<Tenant[]> {
+  return (await api.get('/landlord/tenants')).data.data;
+}
+
+export async function listLandlordCustomers(): Promise<LandlordCustomer[]> {
+  return (await api.get('/landlord/customers')).data.data;
+}
+
+export interface LandlordCustomerInput {
+  name: string;
+  phone: string;
+  email?: string | null;
+  unitId?: string | null;
+  status?: RecordStatus;
+}
+
+/** Linking a unit means the customer buys tokens for that unit's meter. */
+export async function createLandlordCustomer(data: LandlordCustomerInput): Promise<LandlordCustomer> {
+  return (await api.post('/landlord/customers', data)).data.data;
+}
+
+export async function updateLandlordCustomer(id: string, data: Partial<LandlordCustomerInput>): Promise<LandlordCustomer> {
+  return (await api.patch(`/landlord/customers/${id}`, data)).data.data;
+}
+
+export async function deleteLandlordCustomer(id: string): Promise<void> {
+  await api.delete(`/landlord/customers/${id}`);
 }

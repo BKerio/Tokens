@@ -113,6 +113,7 @@ const menuSections: NavSection[] = [
       { label: 'My Properties', path: '/landlord/properties', Icon: Home, roles: LANDLORD_ORG, perm: 'properties.view' },
       { label: 'Locations', path: '/landlord/locations', Icon: Map, roles: LANDLORD_ORG, perm: 'properties.view' },
       { label: 'Units', path: '/landlord/units', Icon: DoorOpen, roles: LANDLORD_ORG, perm: 'properties.view' },
+      { label: 'Tenants & Customers', path: '/landlord/people', Icon: Users, roles: LANDLORD_ORG, perm: 'tenants.view' },
       { label: 'Staff', path: '/landlord/staff', Icon: UserCog, roles: LANDLORD },
     ],
   },

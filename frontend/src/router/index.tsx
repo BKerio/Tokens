@@ -29,6 +29,7 @@ const AssignedMetersPage = lazy(() => import('@/pages/meters/AssignedMetersPage'
 const CustomersPage = lazy(() => import('@/pages/meters/CustomersPage'));
 const PropertiesPage = lazy(() => import('@/pages/properties/PropertiesPage'));
 const UnitsPage = lazy(() => import('@/pages/properties/UnitsPage'));
+const PeoplePage = lazy(() => import('@/pages/properties/PeoplePage'));
 const AdminPropertyUnitsPage = lazy(() => import('@/pages/properties/AdminPropertyUnitsPage'));
 const RentDashboardPage = lazy(() => import('@/pages/rentals/RentDashboardPage'));
 const LeasesPage = lazy(() => import('@/pages/rentals/LeasesPage'));
@@ -101,6 +102,7 @@ export const router = createBrowserRouter([
       { path: 'landlord', element: guard(LANDLORD_ORG, <LandlordDashboard />) },
       { path: 'landlord/properties', element: guard(LANDLORD_ORG, <PropertiesPage />) },
       { path: 'landlord/units', element: guard(LANDLORD_ORG, <UnitsPage />) },
+      { path: 'landlord/people', element: guard(LANDLORD_ORG, <PeoplePage />) },
       { path: 'landlord/hierarchy', element: <Navigate to="/landlord/units" replace /> },
       // Rent management (owner + staff; the API enforces each staff permission)
       { path: 'landlord/rent', element: guard(LANDLORD_ORG, <RentDashboardPage />) },
