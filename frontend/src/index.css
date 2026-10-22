@@ -1901,3 +1901,5 @@ h1, h2 { font-family: var(--font-display); }
 .swal-signout-confirm.swal-cf-confirm.danger { background: #D62828; border-color: #D62828; }
 .swal-signout-confirm.swal-cf-confirm.danger:hover { background: #B42020; }
 .swal-signout-confirm.swal-cf-confirm:disabled { opacity: .4; cursor: not-allowed; }
+.fs-meter.locked { opacity: .55; cursor: not-allowed; background: var(--surface-2); }
+.fs-meter em.vendor { color: var(--muted); }

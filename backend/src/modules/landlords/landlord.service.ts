@@ -1,7 +1,7 @@
 import { AppContext } from '../../context.js';
 import type { Prisma } from '../../generated/prisma/index.js';
 import { AccountStatus, Role, TokenType, TransactionStatus } from '../../shared/types/index.js';
-import { ConflictError, NotFoundError } from '../../shared/errors/AppError.js';
+import { ConflictError, NotFoundError, UnprocessableError } from '../../shared/errors/AppError.js';
 import { hashPassword } from '../../shared/utils/hash.js';
 import { pageMeta, paginate } from '../../shared/utils/validation.js';
 
@@ -135,10 +135,24 @@ export class LandlordService {
     if (!landlord) throw new NotFoundError('Landlord');
     const ids = Array.from(new Set(meterIds));
 
-    await this.app.prisma.$transaction([
-      this.app.prisma.meter.updateMany({ where: { landlordId, id: { notIn: ids } }, data: { landlordId: null } }),
-      this.app.prisma.meter.updateMany({ where: { id: { in: ids } }, data: { landlordId } }),
-    ]);
+    // A meter belongs to a vendor or a landlord, never both.
+    const vendorOwned = await this.app.prisma.meter.findMany({
+      where: { id: { in: ids }, vendorId: { not: null } },
+      select: { meterNumber: true, vendor: { select: { businessName: true } } },
+    });
+    if (vendorOwned.length) {
+      const list = vendorOwned.slice(0, 3).map((m) => `${m.meterNumber} (${m.vendor?.businessName})`).join(', ');
+      throw new UnprocessableError(`These meters belong to a vendor: ${list}${vendorOwned.length > 3 ? '…' : ''}. Unassign them from the vendor first.`);
+    }
+
+    await this.app.prisma.$transaction(async (tx) => {
+      const leaving = { OR: [{ landlordId, id: { notIn: ids } }, { id: { in: ids }, landlordId: { not: landlordId } }] };
+      // Units (of this or another landlord) can't keep a meter that is moving away from their landlord.
+      const moving = await tx.meter.findMany({ where: { ...leaving, NOT: { landlordId: null } }, select: { id: true } });
+      if (moving.length) await tx.propertyUnit.updateMany({ where: { meterId: { in: moving.map((m) => m.id) } }, data: { meterId: null } });
+      await tx.meter.updateMany({ where: { landlordId, id: { notIn: ids } }, data: { landlordId: null } });
+      await tx.meter.updateMany({ where: { id: { in: ids } }, data: { landlordId } });
+    });
     await this.app.auditLog.record({
       actorId, action: 'UPDATE', subjectType: 'LANDLORD', subjectId: landlordId,
       summary: `Set ${ids.length} meter(s) for landlord: ${landlord.fullName}`,

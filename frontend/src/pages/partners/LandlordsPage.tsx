@@ -128,7 +128,7 @@ function MetersModal({ landlord, onClose }: { landlord: Landlord; onClose: () =>
     <FormSheet
       icon={Gauge}
       title={`Meters for ${landlord.fullName}`}
-      subtitle="Choose which meters belong to this landlord. They can then link each one to a unit."
+      subtitle="Choose which meters belong to this landlord. They can then link each one to a unit. Meters owned by a vendor can’t be picked."
       width={620}
       onClose={onClose}
       onSubmit={(e) => { e.preventDefault(); save.mutate(); }}
@@ -141,12 +141,13 @@ function MetersModal({ landlord, onClose }: { landlord: Landlord; onClose: () =>
         <div className="fs-meter-list scroll-thin">
           {isLoading ? <LoadingBlock height={160} /> : meters.length === 0 ? <span className="fs-picks-empty">No meters.</span> : meters.map((m) => {
             const takenBy = m.landlordId && m.landlordId !== landlord.id ? m.landlord?.fullName : null;
+            const vendor = m.vendor?.businessName;
             return (
-              <label key={m.id} className={`fs-meter${chosen.has(m.id) ? ' on' : ''}${takenBy ? ' taken' : ''}`}>
-                <input type="checkbox" checked={chosen.has(m.id)} onChange={() => toggle(m.id)} />
+              <label key={m.id} className={`fs-meter${chosen.has(m.id) ? ' on' : ''}${takenBy ? ' taken' : ''}${vendor ? ' locked' : ''}`} title={vendor ? 'Belongs to a vendor - unassign it there first' : undefined}>
+                <input type="checkbox" checked={chosen.has(m.id)} disabled={!!vendor} onChange={() => toggle(m.id)} />
                 <span className="mono">{m.meterNumber}</span>
-                {m.vendor && <small>{m.vendor.businessName}</small>}
-                {takenBy && <em>with {takenBy}</em>}
+                {vendor && <em className="vendor">vendor · {vendor}</em>}
+                {takenBy && <em>moves from {takenBy}</em>}
               </label>
             );
           })}

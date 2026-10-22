@@ -14,7 +14,8 @@ import type { Meter, Vendor } from '@/types/api';
 function AssignModal({ vendor, meters, onClose }: { vendor: Vendor; meters: Meter[]; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [meterId, setMeterId] = useState('');
-  const free = meters.filter((m) => !m.vendorId);
+  // A meter has one owner, so only completely unassigned meters can go to a vendor.
+  const free = meters.filter((m) => !m.vendorId && !m.landlordId);
 
   const assign = useMutation({
     mutationFn: () => updateMeter(meterId, { vendorId: vendor.id }),
@@ -44,7 +45,7 @@ function AssignModal({ vendor, meters, onClose }: { vendor: Vendor; meters: Mete
     >
       <SheetSection id="meter" title="Meter" Icon={Gauge} aside={free.length ? `${free.length} available` : undefined}>
         {free.length === 0 ? (
-          <EmptyState icon={<Gauge size={28} />} title="No free meters" hint="Every meter already has a vendor. Register a new meter on the Meters page first." />
+          <EmptyState icon={<Gauge size={28} />} title="No free meters" hint="Every meter already belongs to a vendor or a landlord. Register a new meter on the Meters page first." />
         ) : (
           <>
             {free.length > 6 && <input className="input mono" placeholder="Search meter number…" value={search} onChange={(e) => setSearch(e.target.value.replace(/\s/g, ''))} />}

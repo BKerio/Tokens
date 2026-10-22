@@ -4,14 +4,14 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Droplets, Flame, Gauge, KeyRound, Link2, Pencil, Plus, Tag, Trash2, Zap } from 'lucide-react';
+import { Droplets, Flame, Gauge, Home, KeyRound, Link2, Pencil, Plus, Store, Tag, Trash2, Unlink, Zap } from 'lucide-react';
 import { createMeter, deleteMeter, listMeters, updateMeter, type MeterInput } from '@/api/meters';
 import { listLandlords, listVendors } from '@/api/accounts';
 import { errorMessage } from '@/api/client';
 import { confirmDialog, notify } from '@/lib/alert';
 import { fmtKes, humanize, statusPill, toNum } from '@/lib/format';
 import { useAuthStore } from '@/stores/authStore';
-import { AmountInput, ChoiceChips, ChoiceTiles, FormSheet, SheetField, SheetGrid, SheetSection } from '@/components/shared/FormSheet';
+import { AmountInput, ChoiceChips, ChoiceTiles, FormSheet, SheetField, SheetGrid, SheetNote, SheetSection } from '@/components/shared/FormSheet';
 import { EmptyState, LoadingBlock, PageHeader, Pagination, SearchInput } from '@/components/shared/ui';
 import { ADMIN_ROLES, type Meter, type MeterStatus } from '@/types/api';
 
@@ -22,11 +22,17 @@ const schema = z.object({
   type: z.string().trim().min(1, 'Required'),
   initialReading: z.string().trim().regex(/^\d*\.?\d*$/, 'Number').optional(),
   status: z.enum(['ACTIVE', 'INACTIVE', 'MAINTENANCE']),
+  ownerType: z.enum(['NONE', 'VENDOR', 'LANDLORD']),
   vendorId: z.string().optional(),
   landlordId: z.string().optional(),
   sgc: optionalInt, krn: optionalInt, ti: optionalInt, ea: optionalInt, ken: optionalInt,
 });
 type MeterForm = z.infer<typeof schema>;
+
+/** A meter has one owner: a vendor (sells tokens on it) or a landlord (links it to a unit). */
+const ownerSchema = schema
+  .refine((d) => d.ownerType !== 'VENDOR' || !!d.vendorId, { message: 'Choose the vendor', path: ['vendorId'] })
+  .refine((d) => d.ownerType !== 'LANDLORD' || !!d.landlordId, { message: 'Choose the landlord', path: ['landlordId'] });
 
 const intOrNull = (v?: string) => (v ? Number(v) : null);
 
@@ -37,14 +43,15 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
   const str = (n: number | null | undefined) => (n === null || n === undefined ? '' : String(n));
 
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<MeterForm>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(ownerSchema),
     defaultValues: meter
       ? {
           meterNumber: meter.meterNumber, type: meter.type, initialReading: String(toNum(meter.initialReading)), status: meter.status,
+          ownerType: meter.vendorId ? 'VENDOR' : meter.landlordId ? 'LANDLORD' : 'NONE',
           vendorId: meter.vendorId ?? '', landlordId: meter.landlordId ?? '',
           sgc: str(meter.sgc), krn: str(meter.krn), ti: str(meter.ti), ea: str(meter.ea), ken: str(meter.ken),
         }
-      : { type: 'electricity', status: 'ACTIVE', vendorId: '', landlordId: '' },
+      : { type: 'electricity', status: 'ACTIVE', ownerType: 'NONE', vendorId: '', landlordId: '' },
   });
 
   const onSubmit = async (f: MeterForm) => {
@@ -53,8 +60,8 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
       type: f.type,
       initialReading: f.initialReading ? Number(f.initialReading) : undefined,
       status: f.status,
-      vendorId: f.vendorId || null,
-      landlordId: f.landlordId || null,
+      vendorId: f.ownerType === 'VENDOR' ? f.vendorId || null : null,
+      landlordId: f.ownerType === 'LANDLORD' ? f.landlordId || null : null,
       sgc: intOrNull(f.sgc), krn: intOrNull(f.krn), ti: intOrNull(f.ti), ea: intOrNull(f.ea), ken: intOrNull(f.ken),
     };
     try {
@@ -69,7 +76,9 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
   };
 
   const v = watch();
-  const owner = [vendors?.data.find((x) => x.id === v.vendorId)?.businessName, landlords?.data.find((x) => x.id === v.landlordId)?.fullName].filter(Boolean).join(' · ');
+  const owner = v.ownerType === 'VENDOR' ? vendors?.data.find((x) => x.id === v.vendorId)?.businessName
+    : v.ownerType === 'LANDLORD' ? landlords?.data.find((x) => x.id === v.landlordId)?.fullName : 'Unassigned';
+  const losingLandlord = !!meter?.landlordId && (v.ownerType !== 'LANDLORD' || v.landlordId !== meter.landlordId);
   return (
     <FormSheet
       icon={Gauge}
@@ -77,7 +86,7 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
       subtitle="Register a prepaid meter and choose who sells tokens on it. The price per unit is set by the meter’s vendor."
       steps={[
         { id: 'meter', title: 'Meter', Icon: Gauge, done: !!(v.meterNumber ?? '').trim() },
-        { id: 'owner', title: 'Assignment', Icon: Link2, done: !!v.vendorId || !!v.landlordId },
+        { id: 'owner', title: 'Assignment', Icon: Link2, done: v.ownerType === 'NONE' || (v.ownerType === 'VENDOR' ? !!v.vendorId : !!v.landlordId) },
         { id: 'sts', title: 'STS keys', Icon: KeyRound, done: true },
       ]}
       width={720}
@@ -117,20 +126,38 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
       </SheetSection>
 
       <SheetSection id="owner">
-        <SheetGrid>
-          <SheetField label="Vendor" hint="Sells tokens on this meter">
+        <div className="vf-field">
+          <span className="vf-label-row"><span className="vf-label">Who is this meter for?</span><small>One owner at a time</small></span>
+          <ChoiceTiles
+            value={v.ownerType}
+            onChange={(t) => setValue('ownerType', t)}
+            label="Meter owner"
+            options={[
+              { value: 'NONE', label: 'Unassigned', hint: 'Keep it in stock', Icon: Unlink },
+              { value: 'VENDOR', label: 'A vendor', hint: 'Sells tokens on it', Icon: Store },
+              { value: 'LANDLORD', label: 'A landlord', hint: 'Links it to a unit', Icon: Home },
+            ]}
+          />
+        </div>
+        {v.ownerType === 'VENDOR' && (
+          <SheetField label="Vendor" required error={errors.vendorId?.message}>
             <select className="eoc-select" {...register('vendorId')}>
-              <option value="">Unassigned</option>
+              <option value="">Choose a vendor…</option>
               {vendors?.data.map((x) => <option key={x.id} value={x.id}>{x.businessName}</option>)}
             </select>
           </SheetField>
-          <SheetField label="Landlord" hint="Can link it to one of their units">
+        )}
+        {v.ownerType === 'LANDLORD' && (
+          <SheetField label="Landlord" required error={errors.landlordId?.message}>
             <select className="eoc-select" {...register('landlordId')}>
-              <option value="">Unassigned</option>
+              <option value="">Choose a landlord…</option>
               {landlords?.data.map((l) => <option key={l.id} value={l.id}>{l.fullName}</option>)}
             </select>
           </SheetField>
-        </SheetGrid>
+        )}
+        {losingLandlord && meter?.landlord && (
+          <SheetNote tone="warn">This meter leaves <b>{meter.landlord.fullName}</b> and is unlinked from their unit.</SheetNote>
+        )}
       </SheetSection>
 
       <SheetSection id="sts" aside="Optional">

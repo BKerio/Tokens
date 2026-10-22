@@ -306,6 +306,7 @@ model Meter {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  // Exactly one of vendorId / landlordId may be set (CHECK "meters_single_owner" in the migration).
   vendorId   String?   @map("vendor_id")
   vendor     Vendor?   @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   landlordId String?   @map("landlord_id")
