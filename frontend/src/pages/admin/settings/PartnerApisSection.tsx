@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, FlaskConical, Hash, Home, Network, Radio, Search, Store, Zap } from 'lucide-react';
 import { getEntityMpesaConfig, listPaymentEntities, saveEntityMpesaConfig, testMpesa, type MpesaConfigInput } from '@/api/payments';
@@ -173,6 +173,8 @@ export default function PartnerApisSection({ onDirtyChange }: { onDirtyChange: (
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [dirty, setDirty] = useState(false);
+  const listRef = useRef<HTMLElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
 
   const onFormDirty = useCallback((d: boolean) => { setDirty(d); onDirtyChange(d); }, [onDirtyChange]);
 
@@ -188,6 +190,11 @@ export default function PartnerApisSection({ onDirtyChange }: { onDirtyChange: (
     if (dirty && !(await confirmDialog({ title: 'Discard unsaved changes?', text: `Your edits to ${selected?.name} haven't been saved.`, confirmLabel: 'Discard', danger: true }))) return;
     onFormDirty(false);
     setSelected(e);
+    // When the list is stacked above the form (narrow screens), bring the form into view.
+    requestAnimationFrame(() => {
+      const list = listRef.current, detail = detailRef.current;
+      if (list && detail && detail.offsetTop > list.offsetTop) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   };
 
   if (isLoading || !data) return <LoadingBlock height={420} />;
@@ -203,7 +210,7 @@ export default function PartnerApisSection({ onDirtyChange }: { onDirtyChange: (
         />
 
         <div className="st-master">
-          <nav className="st-master-list" aria-label="Vendors and landlords">
+          <nav ref={listRef} className="st-master-list" aria-label="Vendors and landlords">
             <div className="st-master-tools">
               <span className="st-search">
                 <Search size={15} aria-hidden="true" />
@@ -239,7 +246,7 @@ export default function PartnerApisSection({ onDirtyChange }: { onDirtyChange: (
             </div>
           </nav>
 
-          <div className="st-master-detail">
+          <div ref={detailRef} className="st-master-detail" style={{ scrollMarginTop: 84 }}>
             {selected ? (
               <>
                 <div className="st-detail-head">

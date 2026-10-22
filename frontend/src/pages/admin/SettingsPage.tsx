@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Cpu, MessageSquareText, Network, Smartphone, type LucideIcon } from 'lucide-react';
@@ -35,13 +35,12 @@ function useSectionStatus(): Record<Tab, { tone: Tone; label: string }> {
   const mpesaReady = ['mpesa_consumer_key', 'mpesa_consumer_secret', 'mpesa_passkey', 'mpesa_shortcode'].every((k) => filled(mpesa, k));
   const mpesaLive = cfg(mpesa, 'mpesa_env')?.value === 'live';
   const dedicated = [...(entities?.vendors ?? []), ...(entities?.landlords ?? [])].filter((e) => e.hasMpesaConfig).length;
-  const overrides = (vending ?? []).filter((v) => v.isActive).length;
 
   return {
     sms: sms ? (smsOn ? { tone: 'ok', label: 'Sending' } : { tone: 'off', label: 'Paused' }) : { tone: 'idle', label: '…' },
     mpesa: mpesa ? (mpesaReady ? { tone: 'ok', label: mpesaLive ? 'Live' : 'Sandbox' } : { tone: 'warn', label: 'Incomplete' }) : { tone: 'idle', label: '…' },
     payments: entities ? { tone: dedicated ? 'ok' : 'idle', label: `${dedicated} own` } : { tone: 'idle', label: '…' },
-    vending: vending ? (overrides ? { tone: 'warn', label: `${overrides} override${overrides === 1 ? '' : 's'}` } : { tone: 'ok', label: 'Per meter' }) : { tone: 'idle', label: '…' },
+    vending: vending ? { tone: 'ok', label: 'All meters' } : { tone: 'idle', label: '…' },
   };
 }
 
@@ -51,6 +50,17 @@ function SettingsPage() {
   const status = useSectionStatus();
   const [dirty, setDirty] = useState(false);
   const onDirtyChange = useCallback((d: boolean) => setDirty(d), []);
+  const navRef = useRef<HTMLElement>(null);
+
+  // On narrow screens the nav is a horizontal strip; keep the active tab visible in it.
+  useEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>('.st-nav-item.on');
+    if (nav && active && nav.scrollWidth > nav.clientWidth) {
+      const a = active.getBoundingClientRect(), n = nav.getBoundingClientRect();
+      nav.scrollTo({ left: nav.scrollLeft + (a.left - n.left) - (nav.clientWidth - a.width) / 2, behavior: 'smooth' });
+    }
+  }, [tab]);
 
   // Closing the tab or reloading with unsaved edits asks the browser to confirm.
   useEffect(() => {
@@ -68,11 +78,11 @@ function SettingsPage() {
   };
 
   return (
-    <div className="col" style={{ gap: 20 }}>
+    <div className="col st-page" style={{ gap: 20 }}>
       <PageHeader eyebrow="System" title="Settings" subtitle="Gateways, payment accounts and token vending parameters." />
 
       <div className="st-layout">
-        <nav className="st-nav" aria-label="Settings sections">
+        <nav ref={navRef} className="st-nav" aria-label="Settings sections">
           {TABS.map(({ key, title, description, Icon }) => {
             const s = status[key];
             const on = key === tab;
