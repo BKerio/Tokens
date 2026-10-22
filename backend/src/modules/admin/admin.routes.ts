@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppContext } from '../../context.js';
 import { AdminService } from './admin.service.js';
+import { PrismTestService } from '../tokens/prism-test.service.js';
 import { authenticate } from '../../middleware/auth.js';
 import { requireRole } from '../../shared/guards/requireRole.js';
 import { ADMIN_ROLES, AccountStatus, Role } from '../../shared/types/index.js';
@@ -30,6 +31,16 @@ const updateSchema = z.object({
 
 const listSchema = paginationSchema.extend({ role: operatorRole.optional(), search: optionalString });
 
+const prismTestSchema = z
+  .object({
+    meterNumber: z.string().trim().regex(/^\d{6,20}$/, 'Meter number must be 6-20 digits'),
+    amount: z.coerce.number().positive('Amount must be greater than 0').max(100_000).optional(),
+    control: z.enum(['CLEAR_TAMPER', 'CLEAR_CREDIT', 'SET_MAX_OVERDRAFT']).optional(),
+    value: z.coerce.number().int().min(0).optional(),
+    raw: z.boolean().optional(),
+  })
+  .refine((d) => d.control || d.amount !== undefined, { message: 'Enter an amount for a credit token', path: ['amount'] });
+
 const auditSchema = paginationSchema.extend({
   userId: optionalString,
   action: optionalString,
@@ -45,6 +56,25 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
   app.addHook('preHandler', requireRole(ADMIN_ROLES));
 
   app.get('/stats', async () => ({ ok: true, data: await service.stats() }));
+
+  /**
+   * Prism diagnostic (the `npm run prism:test` engine): issues a REAL token on
+   * the Prism network for the given meter and reports each step. Records no
+   * transaction and sends no SMS, but every run is audit-logged.
+   */
+  app.post('/prism-test', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
+    const input = parse(prismTestSchema, req.body);
+    const result = await new PrismTestService(ctx).run(input);
+    await ctx.auditLog.record({
+      actorId: req.user.userId,
+      action: 'VEND',
+      subjectType: 'TOKEN',
+      subjectId: result.messageId ?? `prism-test:${input.meterNumber}`,
+      summary: `Prism test ${result.ok ? 'succeeded' : 'failed'}: ${result.tokenType === 'CREDIT' ? `credit ${result.amount}` : result.tokenType} for meter ${input.meterNumber}${result.error ? ` - ${result.error.message}` : ''}`,
+      newValues: { ok: result.ok, source: result.source, sts: result.sts, error: result.error, tokens: result.tokens.length },
+    });
+    return { ok: true, data: result };
+  });
 
   app.get('/users', async (req) => {
     const filters = parse(listSchema, req.query);

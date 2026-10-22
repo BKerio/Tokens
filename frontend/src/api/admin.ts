@@ -1,5 +1,5 @@
 import api from '@/api/client';
-import type { AccountStatus, AdminStats, AuditLog, ListParams, Operator, PaginatedResponse, Role } from '@/types/api';
+import type { AccountStatus, AdminStats, AuditLog, ListParams, Operator, PaginatedResponse, PrismControlType, PrismTestResult, Role } from '@/types/api';
 
 export async function getAdminStats(): Promise<AdminStats> {
   const res = await api.get('/admin/stats');
@@ -33,4 +33,12 @@ export async function listAuditLogs(params: {
 }): Promise<PaginatedResponse<AuditLog>> {
   const res = await api.get('/admin/audit-logs', { params });
   return { data: res.data.data, meta: res.data.meta };
+}
+
+/** Runs the Prism diagnostic: issues a REAL token for the meter (no transaction, no SMS). */
+export async function runPrismTest(data: {
+  meterNumber: string; amount?: number; control?: PrismControlType; value?: number; raw?: boolean;
+}): Promise<PrismTestResult> {
+  const res = await api.post('/admin/prism-test', data, { timeout: 60_000 });
+  return res.data.data;
 }

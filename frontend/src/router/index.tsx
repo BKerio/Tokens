@@ -43,6 +43,7 @@ const EnquiriesPage = lazy(() => import('@/pages/admin/EnquiriesPage'));
 const UserManagementPage = lazy(() => import('@/pages/admin/UserManagementPage'));
 const AuditLogsPage = lazy(() => import('@/pages/admin/AuditLogsPage'));
 const RolesPage = lazy(() => import('@/pages/admin/RolesPage'));
+const PrismTestPage = lazy(() => import('@/pages/admin/PrismTestPage'));
 const ProfilePage = lazy(() => import('@/pages/shared/ProfilePage'));
 
 const ADMINS: Role[] = ['SUPER_ADMIN', 'ADMIN'];
@@ -82,6 +83,7 @@ export const router = createBrowserRouter([
       { path: 'admin/users', element: guard(ADMINS, <UserManagementPage />) },
       { path: 'admin/audit-logs', element: guard(ADMINS, <AuditLogsPage />) },
       { path: 'admin/roles', element: guard(ADMINS, <RolesPage />) },
+      { path: 'admin/prism-test', element: guard(ADMINS, <PrismTestPage />) },
       { path: 'admin/property-units', element: guard(ADMINS, <AdminPropertyUnitsPage />) },
       { path: 'admin/hierarchy', element: <Navigate to="/admin/property-units" replace /> },
       { path: 'meters/assigned', element: guard(ADMINS, <AssignedMetersPage />) },

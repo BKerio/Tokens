@@ -653,3 +653,34 @@ export interface LandlordStaffMember {
   createdAt: string;
   user: { id: string; name: string; email: string; username: string; phone: string | null; status: AccountStatus; createdAt: string };
 }
+
+// ── Prism diagnostic (admin "Prism Test") ────────────────────────────────────
+
+export type PrismControlType = 'CLEAR_TAMPER' | 'CLEAR_CREDIT' | 'SET_MAX_OVERDRAFT';
+
+export interface PrismTestStep {
+  key: 'config' | 'connect' | 'auth' | 'generate';
+  label: string;
+  status: 'ok' | 'failed' | 'skipped';
+  ms: number;
+  detail?: string;
+}
+
+export interface PrismTestResult {
+  ok: boolean;
+  meterNumber: string;
+  tokenType: 'CREDIT' | PrismControlType;
+  amount: number | null;
+  controlValue: number | null;
+  source: 'database' | 'defaults' | 'raw';
+  meter: { type: string; status: string; owner: string | null } | null;
+  overrides: Record<string, number>;
+  sts: { sgc: number; krn: number; ti: number; ea: number; tct: number; ken: number } | null;
+  prism: { host: string; port: number };
+  steps: PrismTestStep[];
+  tokens: { token: string; description: string | null; quantity: string | null }[];
+  messageId: string | null;
+  error: { message: string; code?: string; details?: string } | null;
+  startedAt: string;
+  durationMs: number;
+}

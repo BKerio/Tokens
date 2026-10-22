@@ -38,6 +38,7 @@ import {
   X,
   Zap,
   type LucideIcon,
+  FlaskConical,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { confirmAndSignOut, homePath } from '@/lib/session';
@@ -126,6 +127,7 @@ const menuSections: NavSection[] = [
     title: 'System',
     items: [
       { label: 'Vending Control', path: '/settings?tab=vending', Icon: Activity, roles: ADMINS },
+      { label: 'Prism Test', path: '/admin/prism-test', Icon: FlaskConical, roles: ADMINS },
       { label: 'System Configuration', path: '/settings', Icon: SettingsIcon, roles: ADMINS },
       { label: 'Callback Settings', path: '/settings?tab=mpesa', Icon: Webhook, roles: ADMINS },
       { label: 'Roles & Permissions', path: '/admin/roles', Icon: Shield, roles: ADMINS },

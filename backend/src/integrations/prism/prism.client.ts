@@ -73,8 +73,18 @@ function meterConfigFields(m: MeterConfigIn): FieldSpec[] {
     { id: 12, type: TType.I16, value: m.ti },
     { id: 21, type: TType.BOOL, value: m.allowKrnUpdate ?? false },
     { id: 30, type: TType.I16, value: m.ken },
+    // The PHP client's MeterConfigIn defaults, sent on every legacy vend.
+    { id: 31, type: TType.STRING, value: '0000' }, // doe
+    { id: 32, type: TType.BOOL, value: false }, // allow3Kct
+    { id: 33, type: TType.BOOL, value: true }, // allowKenUpdate
   ];
 }
+
+/** `SessionOptions` as the PHP client sends it (its required `version` defaults to "1.1"). */
+const SESSION_OPTIONS: FieldSpec[] = [
+  { id: 1, type: TType.STRING, value: '1.1' }, // version (required)
+  { id: 10, type: TType.STRING, value: 'en' }, // culture
+];
 
 function decodeToken(s: DecodedStruct): IssuedToken {
   const transfer = s.get(13);
@@ -214,8 +224,7 @@ export class PrismClient {
       { id: 2, type: TType.STRING, value: this.opts.realm },
       { id: 3, type: TType.STRING, value: this.opts.username },
       { id: 4, type: TType.STRING, value: this.opts.password },
-      // SessionOptions with no fields set - matches `new SessionOptions()` in PHP.
-      { id: 5, type: TType.STRUCT, value: {}, fields: [] },
+      { id: 5, type: TType.STRUCT, value: {}, fields: SESSION_OPTIONS },
     ]);
     const success = result.get(0) as DecodedStruct | undefined;
     const token = str(success, 1);
