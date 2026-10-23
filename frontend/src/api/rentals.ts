@@ -76,6 +76,10 @@ export const confirmPaymentClaim = async (id: string, data: { amount?: number; n
 export const rejectPaymentClaim = async (id: string, reason: string): Promise<RentPaymentClaim> =>
   (await api.post(`/landlord/payment-claims/${id}/reject`, { reason })).data.data;
 
+/** Sends the tenant an M-Pesa prompt for rent or deposit; poll waitForPayment(checkoutRequestId) for the outcome. */
+export const requestLeaseStk = async (leaseId: string, data: { purpose: RentClaimPurpose; amount: number; phone?: string }): Promise<{ checkoutRequestId: string; customerMessage: string; phone: string }> =>
+  (await api.post(`/landlord/leases/${leaseId}/stk-push`, data)).data.data;
+
 /** Tenant portal: "I've paid" for rent or deposit. */
 export interface PaymentClaimInput { purpose: RentClaimPurpose; method: 'MPESA' | 'CASH'; amount: number; paidOn: string; reference?: string; note?: string }
 export const reportPayment = async (leaseId: string, data: PaymentClaimInput): Promise<RentPaymentClaim> =>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, CalendarDays, CirclePlus, Coins, HandCoins, Pencil, PiggyBank, ReceiptText, Tag, Undo2, Wallet } from 'lucide-react';
+import { Ban, CalendarDays, CirclePlus, Coins, HandCoins, Pencil, PiggyBank, ReceiptText, Smartphone, Tag, Undo2, Wallet } from 'lucide-react';
 import { getLease, getStatement, reverseEntry, terminateLease, updateLease } from '@/api/rentals';
 import { errorMessage } from '@/api/client';
 import { notify, promptDialog } from '@/lib/alert';
@@ -12,6 +12,7 @@ import { Drawer, LoadingBlock } from '@/components/shared/ui';
 import type { BillingFrequency, Lease } from '@/types/api';
 import { AgingBar, FREQ_LABEL, FREQ_SHORT, METHOD_LABEL, TYPE_LABEL, TYPE_PILL, entrySign, fmtDay } from './rentUi';
 import { MoneyModal, type MoneyKind } from './MoneyModal';
+import RequestMpesaModal from './RequestMpesaModal';
 
 function EditTermsModal({ lease, onClose }: { lease: Lease; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -131,6 +132,7 @@ export default function LeaseDrawer({ leaseId, onClose }: { leaseId: string; onC
   const { data: lease, isLoading } = useQuery({ queryKey: ['lease', leaseId], queryFn: () => getLease(leaseId) });
   const { data: statement } = useQuery({ queryKey: ['statement', leaseId], queryFn: () => getStatement(leaseId), enabled: can('ledger.view') });
   const [money, setMoney] = useState<MoneyKind | null>(null);
+  const [prompting, setPrompting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [ending, setEnding] = useState(false);
 
@@ -170,7 +172,8 @@ export default function LeaseDrawer({ leaseId, onClose }: { leaseId: string; onC
       {a.arrears > 0 && <AgingBar aging={a.aging} />}
 
       <div className="rn-actions">
-        {can('payments.record') && <button className="btn btn-primary btn-sm" onClick={() => setMoney('payment')}><HandCoins size={14} /> Record payment</button>}
+        {active && (can('payments.record') || can('deposits.manage')) && <button className="btn btn-primary btn-sm" onClick={() => setPrompting(true)}><Smartphone size={14} /> M-Pesa prompt</button>}
+        {can('payments.record') && <button className="btn btn-ghost btn-sm" onClick={() => setMoney('payment')}><HandCoins size={14} /> Record payment</button>}
         {can('charges.manage') && <button className="btn btn-ghost btn-sm" onClick={() => setMoney('charge')}><CirclePlus size={14} /> Charge</button>}
         {can('charges.manage') && <button className="btn btn-ghost btn-sm" onClick={() => setMoney('credit')}><Tag size={14} /> Credit</button>}
         {can('deposits.manage') && <button className="btn btn-ghost btn-sm" onClick={() => setMoney('deposit-in')}><PiggyBank size={14} /> Deposit in</button>}
@@ -222,6 +225,7 @@ export default function LeaseDrawer({ leaseId, onClose }: { leaseId: string; onC
       )}
 
       {money && <MoneyModal kind={money} lease={lease} onClose={() => setMoney(null)} />}
+      {prompting && <RequestMpesaModal lease={lease} onClose={() => setPrompting(false)} />}
       {editing && <EditTermsModal lease={lease} onClose={() => setEditing(false)} />}
       {ending && <EndLeaseModal lease={lease} onClose={() => setEnding(false)} />}
     </Drawer>

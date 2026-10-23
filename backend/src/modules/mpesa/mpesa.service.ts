@@ -1,11 +1,15 @@
 import { AppContext } from '../../context.js';
-import { Prisma, type Payment } from '../../generated/prisma/index.js';
+import { PaymentMethod, Prisma, RentClaimPurpose, type Payment } from '../../generated/prisma/index.js';
 import { PaymentChannel, PaymentStatus, TransactionStatus } from '../../shared/types/index.js';
 import { BadRequestError } from '../../shared/errors/AppError.js';
 import { GatewayCredentialsService } from '../settings/gateway-credentials.service.js';
 import { VEND_METER_INCLUDE, VendingService, type VendMeter } from '../tokens/vending.service.js';
 import { NcbaPaymentService, type ProcessPaymentResult } from '../ncba/ncba-payment.service.js';
 import { DarajaClient, type DarajaCredentials, firstMissingDarajaField } from './daraja.client.js';
+import { normalizeMsisdn } from '../../shared/utils/phone.js';
+import { LedgerService } from '../rentals/ledger.service.js';
+import { ROLE_PERMISSIONS, type LandlordAccess } from '../rentals/access.js';
+import { todayNairobi } from '../rentals/billing.js';
 
 /**
  * Safaricom M-Pesa in one place (port of the Laravel MpesaController +
@@ -52,11 +56,13 @@ export class MpesaPaymentService {
   private credentials: GatewayCredentialsService;
   private vending: VendingService;
   private paybill: NcbaPaymentService;
+  private ledger: LedgerService;
 
   constructor(private app: AppContext) {
     this.credentials = new GatewayCredentialsService(app);
     this.vending = new VendingService(app);
     this.paybill = new NcbaPaymentService(app);
+    this.ledger = new LedgerService(app);
   }
 
   private findMeterByNumber(meterNumber: string | null | undefined): Promise<VendMeter | null> {
@@ -126,6 +132,116 @@ export class MpesaPaymentService {
       merchantRequestId: (response.MerchantRequestID as string) ?? null,
       customerMessage: (response.CustomerMessage as string) ?? 'Check your phone to complete the payment.',
     };
+  }
+
+  // ── STK push for rent / deposit (landlord → tenant) ──────────────────────
+
+  /** The landlord's own Daraja account - rent must land with the landlord, never the global account. */
+  async landlordCredentials(landlordId: string): Promise<DarajaCredentials> {
+    const stored = await this.app.prisma.mpesaConfig.findUnique({ where: { landlordId } });
+    if (!stored) {
+      throw new BadRequestError('Your M-Pesa (Daraja) account is not set up yet, so rent cannot be requested by M-Pesa. Ask TokenPap to add it under Partner payment APIs.');
+    }
+    const creds = await this.credentials.fromStoredConfig(stored);
+    const missing = firstMissingDarajaField(creds);
+    if (missing) throw new BadRequestError(`Your M-Pesa account setup is incomplete. Missing: ${missing}`);
+    return creds as DarajaCredentials;
+  }
+
+  /** Credentials a past push was sent with: the landlord's for rent, otherwise the meter owner's / global. */
+  private async credentialsForPayment(payment: Payment): Promise<DarajaCredentials> {
+    if (payment.leaseId && payment.leasePurpose) {
+      const lease = await this.app.prisma.lease.findUniqueOrThrow({ where: { id: payment.leaseId }, select: { landlordId: true } });
+      return this.landlordCredentials(lease.landlordId);
+    }
+    const ref = payment.accountReference && payment.accountReference !== 'Payment' ? payment.accountReference : null;
+    return this.credentialsForMeter(ref);
+  }
+
+  /**
+   * Sends the tenant an STK prompt for rent or deposit, charged to the
+   * landlord's Daraja account with the lease code as the account reference.
+   * Access checks happen in RentStkService.
+   */
+  async stkPushForLease(input: {
+    leaseId: string; leaseCode: string; landlordId: string; purpose: RentClaimPurpose; phone: string; amount: number; initiatedById: string;
+  }) {
+    const msisdn = normalizeMsisdn(input.phone);
+    if (!msisdn) throw new BadRequestError('Enter a valid Safaricom phone number.');
+    const creds = await this.landlordCredentials(input.landlordId);
+    const response = await this.app.mpesa.stkPush(creds, msisdn, input.amount, input.leaseCode);
+
+    if (DarajaClient.isError(response) || !response.CheckoutRequestID) {
+      this.app.log.error({ response, leaseId: input.leaseId }, 'Rent STK push failed');
+      throw new BadRequestError(DarajaClient.errorMessage(response));
+    }
+
+    await this.app.prisma.payment.create({
+      data: {
+        channel: PaymentChannel.STK,
+        status: PaymentStatus.PENDING,
+        checkoutRequestId: response.CheckoutRequestID,
+        merchantRequestId: response.MerchantRequestID ?? null,
+        accountReference: input.leaseCode,
+        phone: msisdn,
+        amount: input.amount,
+        leaseId: input.leaseId,
+        leasePurpose: input.purpose,
+        initiatedById: input.initiatedById,
+      },
+    });
+
+    return {
+      checkoutRequestId: response.CheckoutRequestID as string,
+      customerMessage: (response.CustomerMessage as string) ?? 'Prompt sent to the tenant’s phone.',
+      phone: msisdn,
+    };
+  }
+
+  /**
+   * A confirmed rent/deposit push → PAYMENT / DEPOSIT_RECEIVED on the lease,
+   * then an SMS to the tenant. If posting fails the payment stays unresolved
+   * and shows in Collections for manual allocation.
+   */
+  private async postToLease(payment: Payment): Promise<void> {
+    const lease = await this.app.prisma.lease.findUnique({
+      where: { id: payment.leaseId! },
+      include: { tenant: { select: { name: true, phone: true } }, unit: { select: { name: true } }, landlord: { select: { fullName: true } } },
+    });
+    if (!lease) return;
+    const access: LandlordAccess = {
+      landlordId: lease.landlordId, landlordName: lease.landlord.fullName, actorId: payment.initiatedById ?? lease.landlordId,
+      role: 'OWNER', permissions: new Set(ROLE_PERMISSIONS.OWNER), allProperties: true, propertyIds: [],
+    };
+    const deposit = payment.leasePurpose === RentClaimPurpose.DEPOSIT;
+    const money = {
+      amount: Number(payment.amount),
+      date: todayNairobi(payment.createdAt),
+      method: PaymentMethod.MPESA,
+      reference: payment.mpesaReceiptNumber ?? undefined,
+      description: `M-Pesa prompt to ${payment.phone}`,
+    };
+    try {
+      if (deposit) await this.ledger.deposit(access, lease.id, 'RECEIVED', money);
+      else await this.ledger.recordPayment(access, lease.id, money);
+    } catch (err) {
+      this.app.log.error({ err, paymentId: payment.id, leaseId: lease.id }, 'Could not post rent STK payment to the ledger - left for reconciliation');
+      return;
+    }
+    await this.app.prisma.payment.update({
+      where: { id: payment.id },
+      data: { resolution: 'RENT_ALLOCATED', resolvedAt: new Date(), resolvedById: payment.initiatedById, resolutionNote: `Posted automatically to lease ${lease.code}` },
+    });
+
+    const { balance, depositHeld } = await this.ledger.leaseBalance(lease.id);
+    const KES = (n: number) => n.toLocaleString('en-KE', { maximumFractionDigits: 2 });
+    const tail = deposit
+      ? `Deposit held: KES ${KES(depositHeld)}.`
+      : balance > 0 ? `Balance due: KES ${KES(balance)}.` : balance < 0 ? `You are KES ${KES(-balance)} in credit.` : 'Your rent is fully paid.';
+    void this.app.sms.send(
+      lease.tenant.phone,
+      `Hi ${lease.tenant.name.split(' ')[0]}, ${lease.landlord.fullName} received your ${deposit ? 'deposit' : 'rent'} payment of KES ${KES(Number(payment.amount))}${payment.mpesaReceiptNumber ? ` (${payment.mpesaReceiptNumber})` : ''} for ${lease.unit.name}. ${tail}`,
+    );
   }
 
   /** Safaricom STK callback. Always resolves - the caller answers Daraja with ResultCode 0. */
@@ -260,6 +376,11 @@ export class MpesaPaymentService {
       subjectId: payment.id,
       summary: `${payment.channel} payment KES ${payment.amount} from ${payment.phone} for ${payment.accountReference ?? 'unknown account'}`,
     });
+    // Rent / deposit pushes go to the lease ledger, never to a meter.
+    if (payment.leaseId && payment.leasePurpose) {
+      await this.postToLease(payment);
+      return;
+    }
     const meter = await this.findMeterByNumber(payment.accountReference);
     if (meter) {
       await this.vending.vendForPayment(payment, meter, 'M-Pesa');
@@ -282,8 +403,7 @@ export class MpesaPaymentService {
     const checkoutRequestId = payment.checkoutRequestId;
 
     try {
-      const ref = payment.accountReference && payment.accountReference !== 'Payment' ? payment.accountReference : null;
-      const creds = await this.credentialsForMeter(ref).catch((err) => {
+      const creds = await this.credentialsForPayment(payment).catch((err) => {
         this.app.log.warn({ err, checkoutRequestId }, 'STK query skipped: no usable M-Pesa credentials');
         return null;
       });
@@ -340,11 +460,14 @@ export class MpesaPaymentService {
       resultDesc: payment.resultDesc,
       mpesaReceipt: payment.mpesaReceiptNumber,
       accountReference: payment.accountReference,
+      purpose: payment.leasePurpose,
     };
     if (payment.status === PaymentStatus.FAILED) {
       data.failureReason = STK_FAILURE_REASONS[Number(payment.resultCode)] ?? payment.resultDesc ?? 'Transaction failed. Please try again';
     }
-    if (payment.status === PaymentStatus.CONFIRMED) {
+    if (payment.status === PaymentStatus.CONFIRMED && payment.leasePurpose) {
+      data.posted = payment.resolution === 'RENT_ALLOCATED';
+    } else if (payment.status === PaymentStatus.CONFIRMED) {
       const tx = await this.app.prisma.tokenTransaction.findFirst({
         where: { paymentId: payment.id },
         orderBy: { createdAt: 'desc' },
@@ -376,8 +499,9 @@ export class MpesaPaymentService {
           // Prism + SMS usually take a few seconds after the payment settles.
           const tokenDeadline = Date.now() + (wait ? 20_000 : 0);
           for (;;) {
-            const snap = await this.statusSnapshot(payment);
-            if (snap.tokens || snap.vendError || Date.now() >= tokenDeadline) return snap;
+            const fresh = await this.app.prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+            const snap = await this.statusSnapshot(fresh);
+            if (snap.tokens || snap.vendError || snap.posted || Date.now() >= tokenDeadline) return snap;
             await sleep(500);
           }
         }

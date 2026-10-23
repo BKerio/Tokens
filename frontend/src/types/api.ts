@@ -284,6 +284,9 @@ export interface PaymentStatusResult {
   vendError?: string | null;
   /** Whether the token SMS reached the gateway (present with tokens). */
   smsSent?: boolean;
+  /** Rent / deposit prompts: what it paid, and whether it is on the lease statement yet. */
+  purpose?: RentClaimPurpose | null;
+  posted?: boolean;
   message?: string;
 }
 

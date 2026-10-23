@@ -92,7 +92,7 @@ export function CustomerBuyPage() {
   return (
     <div className="col" style={{ gap: 20, maxWidth: 560 }}>
       <PageHeader eyebrow="Lipa na M-Pesa" title="Buy tokens" subtitle="Pay with M-Pesa - your token appears here and arrives by SMS." />
-      <div className="card"><BuyTokensPanel defaultMeter={me.meter?.meterNumber ?? ''} defaultPhone={me.phone} /></div>
+      <BuyTokensPanel defaultMeter={me.meter?.meterNumber ?? ''} defaultPhone={me.phone} />
     </div>
   );
 }

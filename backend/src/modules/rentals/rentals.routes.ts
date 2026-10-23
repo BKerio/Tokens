@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { AppContext } from '../../context.js';
 import { authenticate } from '../../middleware/auth.js';
 import { requireRole } from '../../shared/guards/requireRole.js';
-import { BillingFrequency, LandlordStaffRole, LeaseStatus, LedgerEntryType, PaymentMethod, RentClaimStatus } from '../../generated/prisma/index.js';
+import { BillingFrequency, LandlordStaffRole, LeaseStatus, LedgerEntryType, PaymentMethod, RentClaimPurpose, RentClaimStatus } from '../../generated/prisma/index.js';
 import { nullableString, optionalString, paginationSchema, parse } from '../../shared/utils/validation.js';
 import { LANDLORD_ORG_ROLES, assertCan, describeAccess, landlordAccess } from './access.js';
 import { parseDay, todayNairobi } from './billing.js';
 import { BillingService } from './billing.service.js';
 import { RentClaimService } from './claims.service.js';
+import { RentStkService } from './rent-stk.service.js';
 import { LeaseService } from './lease.service.js';
 import { LedgerService } from './ledger.service.js';
 import { OrgService } from './org.service.js';
@@ -107,6 +108,7 @@ export async function rentalsRoutes(app: FastifyInstance, ctx: AppContext) {
   const reports = new ReportService(ctx);
   const billing = new BillingService(ctx);
   const claims = new RentClaimService(ctx);
+  const stk = new RentStkService(ctx);
 
   app.addHook('preHandler', authenticate);
   app.addHook('preHandler', requireRole(LANDLORD_ORG_ROLES));
@@ -153,6 +155,16 @@ export async function rentalsRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post<Id>('/leases/:id/deposits', async (req, reply) => {
     const input = parse(moneyIn.extend({ action: z.enum(['RECEIVED', 'REFUND', 'APPLIED']) }), req.body);
     return reply.status(201).send({ ok: true, data: await ledger.deposit(await access(req), req.params.id, input.action, withDate(input)) });
+  });
+
+  /** Send the tenant an M-Pesa prompt for rent or deposit; poll GET /mpesa/query/:checkoutRequestId for the outcome. */
+  app.post<Id>('/leases/:id/stk-push', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
+    const input = parse(z.object({
+      purpose: z.enum(RentClaimPurpose).default('RENT'),
+      amount: z.coerce.number().int('M-Pesa takes whole shillings').min(1, 'Minimum is KES 1'),
+      phone: optionalString,
+    }), req.body);
+    return { ok: true, data: await stk.request(await access(req), req.params.id, input) };
   });
 
   // ── Ledger ─────────────────────────────────────────────────────────────────

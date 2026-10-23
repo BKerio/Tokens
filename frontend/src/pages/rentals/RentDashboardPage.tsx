@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, ChevronRight, FileSignature, HandCoins, MapPin, PiggyBank, Plus, Receipt, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
+import { Building2, ChevronRight, FileSignature, HandCoins, MapPin, PiggyBank, Plus, Receipt, ShieldCheck, Smartphone, TrendingUp, Wallet } from 'lucide-react';
 import { getRentReport, listArrears } from '@/api/rentals';
 import { fmtKes, fmtKesShort } from '@/lib/format';
 import { nairobiTodayISO } from '@/lib/datetime';
@@ -11,6 +11,7 @@ import LeaseFormModal from './LeaseFormModal';
 import { AgingBar, fmtDay } from './rentUi';
 import { MoneyModal } from './MoneyModal';
 import PaymentClaimsPanel from './PaymentClaimsPanel';
+import RequestMpesaModal from './RequestMpesaModal';
 
 /** Landlord rent overview: this month's money, arrears and occupancy at a glance. */
 export default function RentDashboardPage() {
@@ -20,6 +21,7 @@ export default function RentDashboardPage() {
   const monthStart = `${today.slice(0, 8)}01`;
   const [creating, setCreating] = useState(false);
   const [money, setMoney] = useState<'payment' | 'expense' | null>(null);
+  const [prompting, setPrompting] = useState(false);
 
   const { data: report, isLoading } = useQuery({
     queryKey: ['rent-report', 'dashboard', monthStart, today],
@@ -41,6 +43,7 @@ export default function RentDashboardPage() {
         </div>
         <div className="hd-top-actions">
           <span className="hd-range">{monthName} to date</span>
+          {(can('payments.record') || can('deposits.manage')) && <button className="btn btn-ghost btn-sm" onClick={() => setPrompting(true)}><Smartphone size={14} /> M-Pesa prompt</button>}
           {can('payments.record') && <button className="btn btn-ghost btn-sm" onClick={() => setMoney('payment')}><HandCoins size={14} /> Payment</button>}
           {can('expenses.manage') && <button className="btn btn-ghost btn-sm" onClick={() => setMoney('expense')}><Receipt size={14} /> Expense</button>}
           {can('leases.manage') && <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> New lease</button>}
@@ -125,6 +128,7 @@ export default function RentDashboardPage() {
 
       {creating && <LeaseFormModal onClose={() => setCreating(false)} onCreated={(l) => navigate(`/landlord/leases?lease=${l.id}`)} />}
       {money && <MoneyModal kind={money} onClose={() => setMoney(null)} />}
+      {prompting && <RequestMpesaModal onClose={() => setPrompting(false)} />}
     </div>
   );
 }

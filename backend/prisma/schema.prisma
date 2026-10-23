@@ -579,6 +579,10 @@ model Payment {
   resolvedBy     User?              @relation("PaymentResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
   leaseId        String?            @map("lease_id")
   lease          Lease?             @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+  // Set on an STK push a landlord (or their staff) sent a tenant: what it pays
+  // and who sent it. Confirmed pushes post to the lease ledger automatically.
+  leasePurpose   RentClaimPurpose?  @map("lease_purpose")
+  initiatedById  String?            @map("initiated_by_id")
 
   tokenTransactions TokenTransaction[]
 

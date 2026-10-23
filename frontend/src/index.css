@@ -2343,3 +2343,86 @@ h1, h2 { font-family: var(--font-display); }
 .tp-claims-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
 .tp-claims-side b { font-size: 14px; color: var(--ink); }
 
+
+/* ── M-Pesa STK flow (mp-*) - one look for every M-Pesa payment ─────────── */
+.mp-card { position: relative; width: 100%; max-width: 440px; margin: 0 auto; padding: 36px 32px 30px; border-radius: 28px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(16, 33, 26, .06); }
+.mp-center { display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center; }
+.mp-back { position: absolute; top: 26px; left: 24px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--muted-2); cursor: pointer; transition: color .15s, background .15s; }
+.mp-back:hover { color: var(--ink); background: var(--surface-2); }
+.mp-title { text-align: center; margin: 14px 0 22px; }
+.mp-title h1 { margin: 0 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -.02em; color: var(--ink); }
+.mp-title p { margin: 0; font-size: 14px; font-weight: 500; color: var(--muted-2); }
+.mp-kicker { display: block; margin-bottom: 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-2); }
+.mp-context { display: flex; justify-content: space-between; gap: 14px; margin-bottom: 22px; padding: 14px 16px; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--border); }
+.mp-context b { display: block; font-size: 14px; font-weight: 800; color: var(--ink); }
+.mp-context small { display: block; margin-top: 2px; font-size: 12px; color: var(--muted-2); }
+.mp-context-right { text-align: right; flex-shrink: 0; }
+.mp-context-right b { color: var(--green); }
+.mp-form { display: flex; flex-direction: column; gap: 18px; }
+.mp-field { display: flex; flex-direction: column; gap: 8px; }
+.mp-label { padding-left: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-2); }
+.mp-input { display: flex; align-items: center; gap: 12px; padding: 15px 16px; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted-2); transition: border-color .2s, background .2s, box-shadow .2s; }
+.mp-input:hover { border-color: var(--border-strong); }
+.mp-input:focus-within { border-color: var(--green); background: var(--surface); box-shadow: 0 0 0 4px var(--ring); }
+.mp-input.invalid { border-color: var(--red); }
+.mp-input input, .mp-input select { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 18px; font-weight: 500; color: var(--ink); }
+.mp-input input::placeholder { color: var(--muted-2); opacity: .6; }
+.mp-error { padding-left: 4px; font-size: 12px; font-weight: 700; color: var(--red); }
+.mp-alert { padding: 12px 14px; border-radius: 14px; background: var(--red-soft); color: var(--red); font-size: 13px; font-weight: 600; line-height: 1.45; }
+.mp-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: -6px; }
+.mp-preset { padding: 7px 12px; border-radius: 99px; border: 1px solid var(--border-strong); background: var(--surface); font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; transition: all .15s; }
+.mp-preset:hover { border-color: var(--green); color: var(--green); }
+.mp-preset.on { background: var(--green-light); border-color: var(--green); color: var(--green); }
+.mp-seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.mp-seg button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface-2); font: inherit; text-align: left; cursor: pointer; transition: all .15s; }
+.mp-seg button b { font-size: 14px; color: var(--ink); }
+.mp-seg button small { font-size: 12px; color: var(--muted-2); }
+.mp-seg button.on { border-color: var(--green); background: var(--green-light); box-shadow: 0 0 0 3px var(--ring); }
+.mp-btn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; padding: 18px 16px; border: 0; border-radius: 22px; background: var(--green); color: #fff; font: inherit; font-size: 16px; font-weight: 800; cursor: pointer; box-shadow: 0 12px 26px rgba(30, 58, 138, .22); transition: background .2s, transform .1s; }
+.mp-btn:hover { background: var(--green-dark); }
+.mp-btn:active { transform: scale(.98); }
+.mp-btn:disabled { opacity: .75; cursor: progress; }
+.mp-btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--border-strong); box-shadow: none; }
+.mp-btn.ghost:hover { background: var(--surface-2); }
+.mp-btn-row { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.mp-btn-row .mp-btn { margin-top: 0; }
+.mp-spinner { width: 18px; height: 18px; border-radius: 99px; border: 2.5px solid rgba(255, 255, 255, .35); border-top-color: #fff; animation: mp-spin .8s linear infinite; }
+.mp-ring { position: relative; width: 96px; height: 96px; display: grid; place-items: center; border-radius: 99px; background: var(--surface); color: var(--green); border: 2px solid var(--green-light); box-shadow: 0 10px 32px rgba(30, 58, 138, .12); }
+.mp-ring.mp-spinning::after { content: ""; position: absolute; inset: -2px; border-radius: 99px; border: 2px solid transparent; border-top-color: var(--green); border-right-color: var(--green); animation: mp-spin 1s linear infinite; }
+.mp-ring.done { border-color: var(--green); }
+.mp-ring.bad { color: var(--red); border-color: var(--red); box-shadow: 0 10px 32px rgba(214, 40, 40, .12); }
+.mp-ring.wait { color: var(--gold); border-color: var(--gold); box-shadow: 0 10px 32px rgba(212, 160, 23, .14); }
+.mp-heading h2 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
+.mp-heading p { margin: 6px 0 0; font-size: 14px; font-weight: 600; }
+.mp-accent { color: var(--green); }
+.mp-bad { color: var(--red); }
+.mp-pulse { animation: mp-pulse 1.6s ease-in-out infinite; }
+.mp-leg { width: 100%; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--border); text-align: left; }
+.mp-leg-label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted-2); }
+.mp-leg-body { display: flex; align-items: center; gap: 12px; }
+.mp-leg-body > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.mp-leg-body b { font-size: 15px; font-weight: 800; color: var(--ink); }
+.mp-leg-body small { font-size: 12px; font-weight: 500; color: var(--muted-2); overflow-wrap: anywhere; }
+.mp-av { width: 40px; height: 40px; flex-shrink: 0; display: grid; place-items: center; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0, 0, 0, .04); font-weight: 800; color: var(--green); }
+.mp-av.ink { color: var(--ink); }
+.mp-foot { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--muted-2); }
+.mp-help { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+.mp-receipt { width: 100%; padding: 8px 20px; border-radius: 20px; background: var(--surface-2); border: 1px solid var(--border); text-align: left; }
+.mp-receipt-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 0; font-size: 14px; }
+.mp-receipt-row.sep { border-top: 1px solid var(--border); }
+.mp-receipt-row > span { color: var(--muted-2); font-weight: 500; }
+.mp-receipt-row > b { font-weight: 800; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
+.mp-receipt-row > b.big { font-size: 20px; color: var(--green); }
+.mp-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; overflow-y: auto; background: rgba(12, 20, 16, .45); backdrop-filter: blur(4px); animation: fadeUp .2s ease-out both; }
+.mp-overlay > .mp-shell { position: relative; width: 100%; max-width: 440px; margin: auto; }
+.mp-close { position: absolute; top: 22px; right: 20px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--muted-2); cursor: pointer; z-index: 2; }
+.mp-close:hover { color: var(--ink); background: var(--surface-2); }
+@keyframes mp-spin { to { transform: rotate(360deg); } }
+@keyframes mp-pulse { 50% { opacity: .45; } }
+@media (max-width: 480px) {
+  .mp-card { padding: 30px 18px 22px; border-radius: 24px; }
+  .mp-title h1 { font-size: 24px; }
+  .mp-context { flex-direction: column; }
+  .mp-context-right { text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) { .mp-ring.mp-spinning::after, .mp-pulse, .mp-spinner { animation: none; } }
