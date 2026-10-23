@@ -18,6 +18,7 @@ export interface MeterInput {
   ti?: number | null;
   ea?: number | null;
   ken?: number | null;
+  pricePerUnit?: number;
 }
 
 export async function listMeters(
@@ -32,7 +33,7 @@ export async function createMeter(data: MeterInput): Promise<Meter> {
   return res.data.data;
 }
 
-/** Admins edit everything but price; vendors send only { pricePerUnit }. */
+/** Admins edit everything, price included; vendors send only { pricePerUnit }. */
 export async function updateMeter(id: string, data: Partial<MeterInput> & { pricePerUnit?: number }): Promise<Meter> {
   const res = await api.patch(`/meters/${id}`, data);
   return res.data.data;

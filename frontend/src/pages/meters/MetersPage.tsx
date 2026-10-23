@@ -26,6 +26,7 @@ const schema = z.object({
   vendorId: z.string().optional(),
   landlordId: z.string().optional(),
   sgc: optionalInt, krn: optionalInt, ti: optionalInt, ea: optionalInt, ken: optionalInt,
+  price: z.string().trim().regex(/^\d*\.?\d{0,2}$/, 'Enter a price like 150 or 150.50').optional(),
 });
 type MeterForm = z.infer<typeof schema>;
 
@@ -50,8 +51,9 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
           ownerType: meter.vendorId ? 'VENDOR' : meter.landlordId ? 'LANDLORD' : 'NONE',
           vendorId: meter.vendorId ?? '', landlordId: meter.landlordId ?? '',
           sgc: str(meter.sgc), krn: str(meter.krn), ti: str(meter.ti), ea: str(meter.ea), ken: str(meter.ken),
+          price: toNum(meter.pricePerUnit) > 0 ? String(toNum(meter.pricePerUnit)) : '',
         }
-      : { type: 'electricity', status: 'ACTIVE', ownerType: 'NONE', vendorId: '', landlordId: '' },
+      : { type: 'electricity', status: 'ACTIVE', ownerType: 'NONE', vendorId: '', landlordId: '', price: '' },
   });
 
   const onSubmit = async (f: MeterForm) => {
@@ -63,6 +65,7 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
       vendorId: f.ownerType === 'VENDOR' ? f.vendorId || null : null,
       landlordId: f.ownerType === 'LANDLORD' ? f.landlordId || null : null,
       sgc: intOrNull(f.sgc), krn: intOrNull(f.krn), ti: intOrNull(f.ti), ea: intOrNull(f.ea), ken: intOrNull(f.ken),
+      pricePerUnit: f.price ? Number(f.price) : 0,
     };
     try {
       if (meter) await updateMeter(meter.id, payload);
@@ -83,10 +86,11 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
     <FormSheet
       icon={Gauge}
       title={meter ? `Edit meter ${meter.meterNumber}` : 'New meter'}
-      subtitle="Register a prepaid meter and choose who sells tokens on it. The price per unit is set by the meter’s vendor."
+      subtitle="Register a prepaid meter, choose who sells tokens on it and set its price per unit."
       steps={[
         { id: 'meter', title: 'Meter', Icon: Gauge, done: !!(v.meterNumber ?? '').trim() },
         { id: 'owner', title: 'Assignment', Icon: Link2, done: v.ownerType === 'NONE' || (v.ownerType === 'VENDOR' ? !!v.vendorId : !!v.landlordId) },
+        { id: 'pricing', title: 'Pricing', Icon: Tag, done: Number(v.price) > 0 },
         { id: 'sts', title: 'STS keys', Icon: KeyRound, done: true },
       ]}
       width={720}
@@ -158,6 +162,22 @@ function MeterModal({ meter, onClose }: { meter?: Meter; onClose: () => void }) 
         {losingLandlord && meter?.landlord && (
           <SheetNote tone="warn">This meter leaves <b>{meter.landlord.fullName}</b> and is unlinked from their unit.</SheetNote>
         )}
+      </SheetSection>
+
+      <SheetSection id="pricing" aside={Number(v.price) > 0 ? undefined : 'Not set'}>
+        <SheetField error={errors.price?.message}>
+          <AmountInput
+            value={v.price ?? ''}
+            onChange={(p) => setValue('price', p, { shouldValidate: true })}
+            label="Price per unit"
+            presets={meter && toNum(meter.pricePerUnit) > 0 ? [{ label: `Keep ${fmtKes(meter.pricePerUnit)}`, amount: toNum(meter.pricePerUnit) }] : []}
+          />
+        </SheetField>
+        <SheetNote>
+          {Number(v.price) > 0
+            ? <>KES 1,000 buys <b>{(1000 / Number(v.price)).toFixed(2)} {v.type === 'water' ? 'm³' : v.type === 'gas' ? 'units' : 'kWh'}</b>. Shown on the customer’s token SMS. The vendor can also change it.</>
+            : <>Leave blank to let the meter’s vendor set the price. Until a price is set, token SMS can’t show units.</>}
+        </SheetNote>
       </SheetSection>
 
       <SheetSection id="sts" aside="Optional">
@@ -240,7 +260,7 @@ function MetersPage() {
       <PageHeader
         eyebrow="Inventory"
         title={isVendor ? 'My meters' : 'Meter management'}
-        subtitle={isAdmin ? <>Every prepaid meter on the platform. See who holds each meter under <Link to="/meters/assigned" style={{ color: 'var(--green)', fontWeight: 600 }}>Assigned Meters</Link>.</> : isVendor ? 'Meters assigned to you - set the price per unit customers pay.' : 'Meters assigned to your properties.'}
+        subtitle={isAdmin ? <>Every prepaid meter on the platform and its price per unit. See who holds each meter under <Link to="/meters/assigned" style={{ color: 'var(--green)', fontWeight: 600 }}>Assigned Meters</Link>.</> : isVendor ? 'Meters assigned to you - set the price per unit customers pay.' : 'Meters assigned to your properties.'}
         actions={isAdmin && <button className="btn btn-primary" onClick={() => setEditing('new')}><Plus size={16} /> New meter</button>}
       />
       <div className="card">
@@ -268,7 +288,7 @@ function MetersPage() {
                     <td><span className={statusPill(m.status)}>{m.status}</span></td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <Link className="icon-btn" title="Vend token" to={`/tokens?meter=${encodeURIComponent(m.meterNumber)}`}><Zap size={14} /></Link>
-                      {isVendor && <button className="btn btn-soft btn-sm" onClick={() => setPricing(m)}><Tag size={13} /> Set price</button>}
+                      {(isVendor || isAdmin) && <button className="btn btn-soft btn-sm" onClick={() => setPricing(m)}><Tag size={13} /> {toNum(m.pricePerUnit) > 0 ? 'Price' : 'Set price'}</button>}
                       {isAdmin && (
                         <>
                           <button className="icon-btn" title="Edit" onClick={() => setEditing(m)}><Pencil size={14} /></button>

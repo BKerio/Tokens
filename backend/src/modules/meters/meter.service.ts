@@ -23,6 +23,8 @@ export interface MeterAdminInput {
   ti?: number | null;
   ea?: number | null;
   ken?: number | null;
+  /** KES per unit; admins may set it, otherwise the owning vendor does. */
+  pricePerUnit?: number;
 }
 
 const ONE_OWNER = 'A meter belongs to either a vendor or a landlord, not both.';
@@ -75,11 +77,11 @@ export class MeterService {
     }
   }
 
-  /** Admin-only. Price starts at 0 - the assigned vendor sets it. */
+  /** Admin-only. Price defaults to 0 (not set) - the admin or the assigned vendor sets it. */
   async create(input: MeterAdminInput, actorId: string) {
     await this.assertOwnersExist(input.vendorId, input.landlordId);
     const meter = await this.app.prisma.meter.create({
-      data: { ...input, initialReading: input.initialReading ?? 0, pricePerUnit: 0 },
+      data: { ...input, initialReading: input.initialReading ?? 0, pricePerUnit: input.pricePerUnit ?? 0 },
       include: METER_INCLUDE,
     });
     await this.app.auditLog.record({
@@ -89,16 +91,16 @@ export class MeterService {
   }
 
   /**
-   * Admins edit everything except price; vendors may only set the price of
-   * their own meters (the vendor dictates pricing). Landlords are read-only.
+   * Admins edit everything, price included; vendors may only set the price of
+   * their own meters. Landlords are read-only.
    */
-  async update(actor: Actor, id: string, input: Partial<MeterAdminInput> & { pricePerUnit?: number }) {
+  async update(actor: Actor, id: string, input: Partial<MeterAdminInput>) {
     const meter = await this.app.prisma.meter.findUnique({ where: { id } });
     if (!meter) throw new NotFoundError('Meter');
 
     let data: Prisma.MeterUncheckedUpdateInput;
     if (actor.isAdmin) {
-      const { pricePerUnit: _ignored, ...rest } = input;
+      const rest = { ...input };
       await this.assertOwnersExist(rest.vendorId, rest.landlordId);
       // A meter has one owner: giving it to a vendor takes it from its landlord and vice versa.
       if (rest.vendorId && rest.landlordId === undefined) rest.landlordId = null;
@@ -119,7 +121,9 @@ export class MeterService {
     });
     await this.app.auditLog.record({
       actorId: actor.userId, action: 'UPDATE', subjectType: 'METER', subjectId: id,
-      summary: actor.isAdmin ? `Updated meter ${updated.meterNumber}` : `Set price for meter ${updated.meterNumber} to KES ${input.pricePerUnit}`,
+      summary: input.pricePerUnit !== undefined && Number(meter.pricePerUnit) !== input.pricePerUnit
+        ? `${actor.isAdmin ? 'Updated meter' : 'Set price for meter'} ${updated.meterNumber}: price KES ${Number(meter.pricePerUnit)} → KES ${input.pricePerUnit}`
+        : `Updated meter ${updated.meterNumber}`,
       oldValues: meter, newValues: updated,
     });
     return updated;

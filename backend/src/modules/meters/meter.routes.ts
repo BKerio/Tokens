@@ -26,9 +26,10 @@ const createSchema = z.object({
   ti: stsField,
   ea: stsField,
   ken: stsField,
+  pricePerUnit: z.coerce.number().min(0, 'Price cannot be negative').max(1_000_000).optional(),
 });
 
-const updateSchema = createSchema.partial().extend({ pricePerUnit: z.coerce.number().min(0).optional() });
+const updateSchema = createSchema.partial();
 
 // Meter lists feed assignment pickers, so allow a large page.
 const listSchema = z.object({
