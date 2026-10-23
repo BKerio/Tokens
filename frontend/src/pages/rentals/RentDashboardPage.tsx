@@ -10,6 +10,7 @@ import { EmptyState, LoadingBlock } from '@/components/shared/ui';
 import LeaseFormModal from './LeaseFormModal';
 import { AgingBar, fmtDay } from './rentUi';
 import { MoneyModal } from './MoneyModal';
+import PaymentClaimsPanel from './PaymentClaimsPanel';
 
 /** Landlord rent overview: this month's money, arrears and occupancy at a glance. */
 export default function RentDashboardPage() {
@@ -45,6 +46,8 @@ export default function RentDashboardPage() {
           {can('leases.manage') && <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> New lease</button>}
         </div>
       </header>
+
+      <PaymentClaimsPanel />
 
       {t && (
         <div className="hd-kpis rn-kpis">

@@ -63,8 +63,14 @@ function AppShell() {
     socket.on('disconnect', onDisconnect);
     socket.on('connect_error', onDisconnect);
     socket.on('transaction:created', onTransaction);
+    const onRentClaim = () => {
+      queryClient.invalidateQueries({ queryKey: ['payment-claims'] });
+      addNotification({ type: 'info', title: 'Payment reported', message: 'A tenant reported a payment - confirm it on the rent overview.' });
+    };
+    socket.on('rent:claim', onRentClaim);
 
     return () => {
+      socket.off('rent:claim', onRentClaim);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onDisconnect);

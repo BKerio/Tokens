@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarClock, Check, Copy, DoorOpen, Gauge, Phone, Smartphone, Store, Landmark, Wallet } from 'lucide-react';
+import { CalendarClock, Check, Copy, DoorOpen, Gauge, HandCoins, Phone, Smartphone, Store, Landmark, Wallet } from 'lucide-react';
 import api from '@/api/client';
 import { fmtKes } from '@/lib/format';
 import { EmptyState, LoadingBlock, PageHeader } from '@/components/shared/ui';
-import type { BillingFrequency, LeaseAccount, LedgerEntryType, PaymentMethod, UnitPaymentMethod } from '@/types/api';
+import type { BillingFrequency, LeaseAccount, LedgerEntryType, PaymentMethod, RentPaymentClaim, UnitPaymentMethod } from '@/types/api';
 import { FREQ_LABEL, METHOD_LABEL, TYPE_LABEL, entrySign, fmtDay } from '@/pages/rentals/rentUi';
+import ReportPaymentModal from './ReportPaymentModal';
 
 interface TenantLease {
   id: string;
@@ -27,6 +28,7 @@ interface TenantLease {
 }
 
 interface TenantOverview {
+  claims: RentPaymentClaim[];
   tenant: { id: string; name: string; phone: string; email: string | null };
   landlord: { name: string; phone: string };
   leases: TenantLease[];
@@ -79,9 +81,41 @@ function HowToPay({ lease, landlord }: { lease: TenantLease; landlord: TenantOve
   );
 }
 
+const CLAIM_STATUS: Record<RentPaymentClaim['status'], { label: string; pill: string }> = {
+  PENDING: { label: 'Waiting for landlord', pill: 'pill pill-amber' },
+  CONFIRMED: { label: 'Confirmed', pill: 'pill pill-green' },
+  REJECTED: { label: 'Not confirmed', pill: 'pill pill-red' },
+};
+
+/** Payments the tenant reported and where each one stands. */
+function ReportedPayments({ claims }: { claims: RentPaymentClaim[] }) {
+  if (!claims.length) return null;
+  return (
+    <div className="card">
+      <div className="card-head"><span className="card-title">Payments you reported</span><span className="text-xs" style={{ color: 'var(--muted)' }}>Added to your statement once confirmed</span></div>
+      <ul className="tp-claims">
+        {claims.map((c) => (
+          <li key={c.id}>
+            <span className="tp-claims-main">
+              <b>{c.purpose === 'DEPOSIT' ? 'Deposit' : 'Rent'} · {c.method === 'MPESA' ? 'M-Pesa' : 'Cash'}</b>
+              <small>{[c.reference, c.lease.unit.name, `paid ${fmtDay(c.paidOn)}`].filter(Boolean).join(' · ')}</small>
+              {c.status === 'REJECTED' && c.reviewNote && <small className="tp-claims-why">{c.reviewNote}</small>}
+            </span>
+            <span className="tp-claims-side">
+              <b className="mono">{fmtKes(c.amount)}</b>
+              <span className={CLAIM_STATUS[c.status].pill}><span className="dot" />{CLAIM_STATUS[c.status].label}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** A tenant's own tenancy: what they owe, when rent is due, where to pay and their statement. */
 export default function TenantPortalPage() {
   const { data, isLoading } = useQuery({ queryKey: ['tenant-overview'], queryFn: getOverview });
+  const [reporting, setReporting] = useState<TenantLease | null>(null);
   if (isLoading || !data) return <LoadingBlock />;
 
   const active = data.leases.filter((l) => l.status === 'ACTIVE');
@@ -130,10 +164,19 @@ export default function TenantPortalPage() {
                 <span className="ux-foot">of {fmtKes(l.depositAmount)} agreed</span>
               </div>
             </dl>
-            <div className="tp-pay-wrap"><h4>How to pay rent</h4><HowToPay lease={l} landlord={data.landlord} /></div>
+            <div className="tp-pay-wrap">
+              <h4>How to pay rent</h4>
+              <HowToPay lease={l} landlord={data.landlord} />
+              <div className="tp-paid-row">
+                <span>Already paid by M-Pesa or cash? Let {data.landlord.name} know so it’s added to your statement.</span>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => setReporting(l)}><HandCoins size={14} /> I’ve paid</button>
+              </div>
+            </div>
           </section>
         );
       })}
+
+      <ReportedPayments claims={data.claims} />
 
       {data.leases.filter((l) => l.statement).map((l) => (
         <div key={`st-${l.id}`} className="card">
@@ -174,6 +217,8 @@ export default function TenantPortalPage() {
           </ul>
         </div>
       )}
+
+      {reporting && <ReportPaymentModal lease={reporting} landlordName={data.landlord.name} onClose={() => setReporting(null)} />}
     </div>
   );
 }

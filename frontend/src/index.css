@@ -2314,3 +2314,32 @@ h1, h2 { font-family: var(--font-display); }
 .pp-facts { margin-top: 18px; }
 .pp-facts em a { color: var(--ink-2); font-weight: 600; text-decoration: none; }
 .pp-facts em a:hover { text-decoration: underline; }
+
+/* Tenant portal: "I've paid" row under How to pay */
+.tp-paid-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding: 12px 14px; border-radius: var(--radius); background: var(--surface-2); border: 1px dashed var(--border-strong); }
+.tp-paid-row > span { font-size: 13px; color: var(--muted); flex: 1 1 220px; }
+
+/* Landlord: payments reported by tenants */
+.pc-panel { border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }
+.pc-panel .hd-card-head { flex-wrap: wrap; gap: 6px 12px; }
+.pc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pc-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.pc-row:first-child { border-top: 0; }
+.pc-ico { width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; display: grid; place-items: center; }
+.pc-ico.mpesa { background: rgba(22, 154, 91, .12); color: #157347; }
+.pc-ico.cash { background: var(--amber-soft); color: var(--amber); }
+.pc-main { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pc-main b { font-size: 14px; color: var(--ink); }
+.pc-main small { font-size: 12.5px; color: var(--muted); }
+.pc-note { font-style: italic; }
+.pc-actions { display: flex; gap: 8px; margin-left: auto; }
+.tp-claims { list-style: none; margin: 0; padding: 0 18px 6px; }
+.tp-claims li { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+.tp-claims li:first-child { border-top: 0; }
+.tp-claims-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tp-claims-main b { font-size: 14px; font-weight: 600; color: var(--ink); }
+.tp-claims-main small { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.tp-claims-why { color: var(--red) !important; }
+.tp-claims-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.tp-claims-side b { font-size: 14px; color: var(--ink); }
+

@@ -593,6 +593,27 @@ export interface PropertyLocation {
 export type LeaseStatus = 'ACTIVE' | 'ENDED' | 'TERMINATED';
 export type BillingFrequency = 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
 export type PaymentMethod = 'MPESA' | 'CASH' | 'BANK' | 'CHEQUE' | 'OTHER';
+
+export type RentClaimPurpose = 'RENT' | 'DEPOSIT';
+export type RentClaimStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED';
+
+/** A payment a tenant reported from the tenant portal, waiting for (or after) the landlord's check. */
+export interface RentPaymentClaim {
+  id: string;
+  purpose: RentClaimPurpose;
+  method: 'MPESA' | 'CASH';
+  amount: Money;
+  paidOn: string;
+  reference: string | null;
+  note: string | null;
+  status: RentClaimStatus;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  ledgerEntryId: string | null;
+  createdAt: string;
+  lease: { id: string; code: string; unit: { id: string; name: string }; property: { id: string; name: string } };
+  tenant: { id: string; name: string; phone: string };
+}
 export type LedgerEntryType =
   | 'RENT_CHARGE' | 'OTHER_CHARGE' | 'PAYMENT' | 'CREDIT' | 'DEPOSIT_RECEIVED' | 'DEPOSIT_REFUND' | 'DEPOSIT_APPLIED' | 'EXPENSE';
 

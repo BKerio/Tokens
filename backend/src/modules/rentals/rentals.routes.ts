@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { AppContext } from '../../context.js';
 import { authenticate } from '../../middleware/auth.js';
 import { requireRole } from '../../shared/guards/requireRole.js';
-import { BillingFrequency, LandlordStaffRole, LeaseStatus, LedgerEntryType, PaymentMethod } from '../../generated/prisma/index.js';
+import { BillingFrequency, LandlordStaffRole, LeaseStatus, LedgerEntryType, PaymentMethod, RentClaimStatus } from '../../generated/prisma/index.js';
 import { nullableString, optionalString, paginationSchema, parse } from '../../shared/utils/validation.js';
 import { LANDLORD_ORG_ROLES, assertCan, describeAccess, landlordAccess } from './access.js';
 import { parseDay, todayNairobi } from './billing.js';
 import { BillingService } from './billing.service.js';
+import { RentClaimService } from './claims.service.js';
 import { LeaseService } from './lease.service.js';
 import { LedgerService } from './ledger.service.js';
 import { OrgService } from './org.service.js';
@@ -105,6 +106,7 @@ export async function rentalsRoutes(app: FastifyInstance, ctx: AppContext) {
   const org = new OrgService(ctx);
   const reports = new ReportService(ctx);
   const billing = new BillingService(ctx);
+  const claims = new RentClaimService(ctx);
 
   app.addHook('preHandler', authenticate);
   app.addHook('preHandler', requireRole(LANDLORD_ORG_ROLES));
@@ -166,6 +168,20 @@ export async function rentalsRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/arrears', async (req) => {
     const { limit } = parse(z.object({ limit: z.coerce.number().int().min(1).max(100).default(10) }), req.query);
     return { ok: true, data: await ledger.arrearsList(await access(req), limit) };
+  });
+
+  // ── Payments reported by tenants ───────────────────────────────────────────
+  app.get('/payment-claims', async (req) => {
+    const q = parse(paginationSchema.extend({ status: z.enum(RentClaimStatus).optional() }), req.query);
+    return { ok: true, ...(await claims.list(await access(req), q)) };
+  });
+  app.post<Id>('/payment-claims/:id/confirm', async (req) => {
+    const input = parse(z.object({ amount: money.optional(), date: day.optional(), note: optionalString }), req.body ?? {});
+    return { ok: true, message: 'Payment confirmed and posted', data: await claims.confirm(await access(req), req.params.id, input) };
+  });
+  app.post<Id>('/payment-claims/:id/reject', async (req) => {
+    const { reason } = parse(z.object({ reason: z.string().trim().min(3, 'Tell the tenant why').max(300) }), req.body);
+    return { ok: true, message: 'Payment rejected', data: await claims.reject(await access(req), req.params.id, reason) };
   });
 
   // ── Reports ────────────────────────────────────────────────────────────────

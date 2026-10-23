@@ -71,6 +71,18 @@ enum PaymentMethod {
   OTHER
 }
 
+// What a tenant says their reported payment was for.
+enum RentClaimPurpose {
+  RENT // Rent / charges - posted as a PAYMENT
+  DEPOSIT // Security deposit - posted as DEPOSIT_RECEIVED
+}
+
+enum RentClaimStatus {
+  PENDING // Waiting for the landlord to check it
+  CONFIRMED // Posted to the ledger
+  REJECTED // Landlord could not verify it
+}
+
 enum AccountStatus {
   ACTIVE
   PENDING // Self-registered vendor awaiting admin approval
@@ -295,6 +307,7 @@ model Landlord {
   leases            Lease[]
   ledgerEntries     LedgerEntry[]
   staff             LandlordStaff[]
+  paymentClaims     RentPaymentClaim[]
 
   @@map("landlords")
 }
@@ -759,6 +772,7 @@ model LandlordTenant {
 
   leases        Lease[]
   ledgerEntries LedgerEntry[]
+  paymentClaims RentPaymentClaim[]
 
   @@index([landlordId])
   @@index([propertyId])
@@ -803,6 +817,7 @@ model Lease {
 
   ledgerEntries LedgerEntry[]
   payments      Payment[]
+  paymentClaims RentPaymentClaim[]
 
   @@index([landlordId, status])
   @@index([unitId])
@@ -846,10 +861,50 @@ model LedgerEntry {
   tenantId   String?         @map("tenant_id")
   tenant     LandlordTenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
+  paymentClaim RentPaymentClaim?
+
   @@index([landlordId, entryDate])
   @@index([leaseId])
   @@index([propertyId, entryDate])
   @@map("ledger_entries")
+}
+
+// A payment the tenant reports from the tenant portal (M-Pesa with its
+// receipt, or cash). Nothing reaches the append-only ledger until the
+// landlord confirms it; confirming posts the PAYMENT / DEPOSIT_RECEIVED entry.
+// A receipt can be claimed once per landlord while not rejected (partial
+// unique index in the migration).
+model RentPaymentClaim {
+  id        String           @id @default(uuid())
+  purpose   RentClaimPurpose
+  method    PaymentMethod
+  amount    Decimal          @db.Decimal(12, 2)
+  paidOn    DateTime         @map("paid_on") @db.Date
+  // M-Pesa receipt (uppercase), or a cash receipt-book number.
+  reference String?
+  note      String?
+  status    RentClaimStatus  @default(PENDING)
+
+  reviewedById String?   @map("reviewed_by_id")
+  reviewedAt   DateTime? @map("reviewed_at")
+  reviewNote   String?   @map("review_note")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  landlordId    String         @map("landlord_id")
+  landlord      Landlord       @relation(fields: [landlordId], references: [id], onDelete: Cascade)
+  leaseId       String         @map("lease_id")
+  lease         Lease          @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  tenantId      String         @map("tenant_id")
+  tenant        LandlordTenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // The ledger entry posted on confirmation.
+  ledgerEntryId String?        @unique @map("ledger_entry_id")
+  ledgerEntry   LedgerEntry?   @relation(fields: [ledgerEntryId], references: [id], onDelete: SetNull)
+
+  @@index([landlordId, status])
+  @@index([tenantId])
+  @@map("rent_payment_claims")
 }
 
 // A user who works for a landlord with a limited role, optionally only on

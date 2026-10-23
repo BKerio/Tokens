@@ -1,4 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
+import { PaymentMethod, RentClaimPurpose } from '../../generated/prisma/index.js';
+import { optionalString, parse } from '../../shared/utils/validation.js';
 import { AppContext } from '../../context.js';
 import { authenticate } from '../../middleware/auth.js';
 import { requireRole } from '../../shared/guards/requireRole.js';
@@ -8,6 +11,17 @@ import { ROLE_PERMISSIONS, type LandlordAccess } from '../rentals/access.js';
 import { LeaseService } from '../rentals/lease.service.js';
 import { LedgerService } from '../rentals/ledger.service.js';
 import { paymentSources } from '../properties/payment-sources.js';
+import { RentClaimService } from '../rentals/claims.service.js';
+import { parseDay } from '../rentals/billing.js';
+
+const claimIn = z.object({
+  purpose: z.enum(RentClaimPurpose),
+  method: z.enum([PaymentMethod.MPESA, PaymentMethod.CASH]),
+  amount: z.coerce.number().positive('Enter the amount you paid').max(100_000_000).transform((n) => Math.round(n * 100) / 100),
+  paidOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose the date you paid').transform(parseDay),
+  reference: optionalString,
+  note: z.string().trim().max(300).optional(),
+});
 
 /**
  * /tenant - the signed-in tenant's own tenancy: leases, balance, statement and
@@ -17,6 +31,7 @@ import { paymentSources } from '../properties/payment-sources.js';
 export async function tenantPortalRoutes(app: FastifyInstance, ctx: AppContext) {
   const leases = new LeaseService(ctx);
   const ledger = new LedgerService(ctx);
+  const claims = new RentClaimService(ctx);
   app.addHook('preHandler', authenticate);
   app.addHook('preHandler', requireRole([Role.TENANT]));
 
@@ -86,10 +101,21 @@ export async function tenantPortalRoutes(app: FastifyInstance, ctx: AppContext) 
     return {
       ok: true,
       data: {
+        claims: await claims.listForTenant(tenant.id),
         tenant: { id: tenant.id, name: tenant.name, phone: tenant.phone, email: tenant.email },
         landlord: { name: tenant.landlord.fullName, phone: tenant.landlord.phone },
         leases: out,
       },
     };
+  });
+
+  /**
+   * "I've paid": the tenant reports an M-Pesa (with receipt) or cash payment
+   * for rent or deposit. It shows on their statement only after the landlord confirms it.
+   */
+  app.post<{ Params: { id: string } }>('/leases/:id/payment-claims', { config: { rateLimit: { max: 10, timeWindow: '10 minutes' } } }, async (req, reply) => {
+    const tenant = await me(req);
+    const claim = await claims.submit({ id: tenant.id, name: tenant.name, landlordId: tenant.landlordId }, req.params.id, parse(claimIn, req.body));
+    return reply.status(201).send({ ok: true, message: 'Payment sent to your landlord to confirm', data: claim });
   });
 }

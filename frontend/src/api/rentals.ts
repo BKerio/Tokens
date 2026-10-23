@@ -1,7 +1,7 @@
 import api from '@/api/client';
 import type {
   ArrearsRow, BillingFrequency, LandlordAccessInfo, LandlordStaffMember, Lease, LeaseAccount, LeaseStatus, LedgerEntry, LedgerEntryType,
-  PaginatedResponse, PaymentMethod, PropertyLocation, RentReport, StaffRole, Tenant, VacantUnit,
+  PaginatedResponse, PaymentMethod, PropertyLocation, RentClaimPurpose, RentClaimStatus, RentPaymentClaim, RentReport, StaffRole, Tenant, VacantUnit,
 } from '@/types/api';
 
 /** Rent management (owner + staff): everything under /landlord. Dates are YYYY-MM-DD. */
@@ -65,6 +65,21 @@ export async function listLedger(params: {
   return { data: res.data.data, meta: res.data.meta };
 }
 export const listArrears = async (limit = 10): Promise<ArrearsRow[]> => (await api.get('/landlord/arrears', { params: { limit } })).data.data;
+
+// ── Payments reported by tenants ────────────────────────────────────────────
+export async function listPaymentClaims(params: { status?: RentClaimStatus; page?: number; limit?: number }): Promise<PaginatedResponse<RentPaymentClaim> & { pending: number }> {
+  const res = await api.get('/landlord/payment-claims', { params });
+  return { data: res.data.data, meta: res.data.meta, pending: res.data.meta.pending };
+}
+export const confirmPaymentClaim = async (id: string, data: { amount?: number; note?: string } = {}): Promise<RentPaymentClaim> =>
+  (await api.post(`/landlord/payment-claims/${id}/confirm`, data)).data.data;
+export const rejectPaymentClaim = async (id: string, reason: string): Promise<RentPaymentClaim> =>
+  (await api.post(`/landlord/payment-claims/${id}/reject`, { reason })).data.data;
+
+/** Tenant portal: "I've paid" for rent or deposit. */
+export interface PaymentClaimInput { purpose: RentClaimPurpose; method: 'MPESA' | 'CASH'; amount: number; paidOn: string; reference?: string; note?: string }
+export const reportPayment = async (leaseId: string, data: PaymentClaimInput): Promise<RentPaymentClaim> =>
+  (await api.post(`/tenant/leases/${leaseId}/payment-claims`, data)).data.data;
 
 // ── Reports & billing ───────────────────────────────────────────────────────
 export const getRentReport = async (params: { from?: string; to?: string; groupBy?: 'property' | 'location' }): Promise<RentReport> =>
