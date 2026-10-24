@@ -148,7 +148,7 @@ function LoginPage() {
       {mode === 'account' ? (
         <form onSubmit={onAccountSubmit} className="au-form">
           <div className="au-field">
-            <label htmlFor="login-identifier">Email or username</label>
+            <label htmlFor="login-identifier">Enter your Email or username</label>
             <input id="login-identifier" className="au-input" autoComplete="username" autoFocus value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="e.g. jane@tokenpap.com" />
           </div>
           <div className="au-field">
