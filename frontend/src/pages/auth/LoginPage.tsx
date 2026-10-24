@@ -23,7 +23,7 @@ export function AuthCard({ title, subtitle, children, footer }: { title: string;
         <Link to="/" aria-label="TokenPap home"><LogoLockup height={34} /></Link>
         <nav>
           <Link to="/buy">Buy tokens</Link>
-          <Link to="/register">Become a vendor</Link>
+          <Link to="/register">Become a vendor today</Link>
         </nav>
       </header>
       <main className="au-main">
