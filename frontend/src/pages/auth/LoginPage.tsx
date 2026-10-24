@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, CircleAlert, Eye, EyeOff, KeyRound, Lock, Phone, ShieldCheck, User as UserIcon } from 'lucide-react';
+import { ArrowRight, CircleAlert, Eye, EyeOff } from 'lucide-react';
 import { login, sendCustomerOtp, sendTenantOtp, verifyCustomerOtp, verifyTenantOtp, googleSignInUrl, type Session } from '@/api/auth';
 import { errorMessage } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
@@ -12,23 +12,30 @@ import type { User } from '@/types/api';
 
 type Mode = 'account' | 'customer' | 'tenant';
 
-/** Branded card shell shared by the login, registration and password-reset screens. */
-export function AuthCard({ title, subtitle, children, footer }: { title: string; subtitle: string; children: ReactNode; footer?: ReactNode }) {
+/**
+ * Soft, centred card on a quiet page with a slim top bar - shared by the login,
+ * registration and password-reset screens. `footer` replaces the terms line under the card.
+ */
+export function AuthCard({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
   return (
-    <div className="login-page">
-      <div className="login-card fade-up">
-        <Link to="/" className="login-cobrand" style={{ justifyContent: 'center', textDecoration: 'none' }}>
-          <LogoLockup height={54} />
-        </Link>
-        <div className="login-body">
-          <h1 className="login-title">{title}</h1>
-          <p className="login-sub">{subtitle}</p>
+    <div className="au-page">
+      <header className="au-top">
+        <Link to="/" aria-label="TokenPap home"><LogoLockup height={34} /></Link>
+        <nav>
+          <Link to="/buy">Buy tokens</Link>
+          <Link to="/register">Become a vendor</Link>
+        </nav>
+      </header>
+      <main className="au-main">
+        <div className="au-card fade-up">
+          <h1 className="au-title">{title}</h1>
+          {subtitle && <p className="au-sub">{subtitle}</p>}
           {children}
         </div>
-        <div className="login-foot">
-          {footer ?? (<><ShieldCheck size={15} /> Secure sign-in · All activity is logged and audited</>)}
-        </div>
-      </div>
+        <p className="au-note">
+          {footer ?? <>You acknowledge that you read, and agree to our <Link to="/terms">Terms of Service</Link> and our <Link to="/privacy">Privacy Policy</Link>.</>}
+        </p>
+      </main>
     </div>
   );
 }
@@ -127,69 +134,56 @@ function LoginPage() {
 
   return (
     <AuthCard
-      title="Sign in"
-      subtitle={mode === 'account' ? 'Administrators, vendors and landlords.' : mode === 'tenant' ? 'Tenants sign in with a code sent to the phone your landlord registered.' : 'Customers sign in with a one-time code sent to their phone.'}
+      title="Welcome back"
+      subtitle={mode === 'account' ? 'Administrators, vendors and landlords.' : mode === 'tenant' ? 'We\u2019ll text a code to the phone your landlord registered.' : 'We\u2019ll text a one-time code to your phone.'}
     >
-      <div className="tabs" style={{ marginBottom: 18 }}>
-        <button type="button" className={`tab${mode === 'account' ? ' on' : ''}`} onClick={() => switchMode('account')}>Staff &amp; partners</button>
-        <button type="button" className={`tab${mode === 'customer' ? ' on' : ''}`} onClick={() => switchMode('customer')}>Customer</button>
-        <button type="button" className={`tab${mode === 'tenant' ? ' on' : ''}`} onClick={() => switchMode('tenant')}>Tenant</button>
+      <div className="au-seg" role="tablist" aria-label="Sign in as">
+        {([['account', 'Account'], ['customer', 'Customer'], ['tenant', 'Tenant']] as [Mode, string][]).map(([m, label]) => (
+          <button key={m} type="button" role="tab" aria-selected={mode === m} className={mode === m ? 'on' : undefined} onClick={() => switchMode(m)}>{label}</button>
+        ))}
       </div>
 
       <FormError message={error} />
 
       {mode === 'account' ? (
-        <form onSubmit={onAccountSubmit} className="col" style={{ gap: 16 }}>
-          <div className="field">
-            <label className="label" htmlFor="login-identifier">Email, username or vendor account ID</label>
-            <div className="input-icon">
-              <input id="login-identifier" className="input" autoComplete="username" autoFocus value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="you@example.com" />
-              <UserIcon size={16} />
-            </div>
+        <form onSubmit={onAccountSubmit} className="au-form">
+          <div className="au-field">
+            <label htmlFor="login-identifier">Email or username</label>
+            <input id="login-identifier" className="au-input" autoComplete="username" autoFocus value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="e.g. jane@tokenpap.com" />
           </div>
-          <div className="field">
-            <label className="label" htmlFor="login-password">Password</label>
-            <div className="input-icon has-toggle">
-              <input id="login-password" className="input" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="************" />
-              <Lock size={16} />
-              <button type="button" className="field-toggle" onClick={() => setShowPassword((v) => !v)} tabIndex={-1} aria-label={showPassword ? 'Hide password' : 'Show password'}>
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          <div className="au-field">
+            <div className="au-label-row">
+              <label htmlFor="login-password">Password</label>
+              <button type="button" className="au-show" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />} {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
+            <input id="login-password" className="au-input" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8+ characters" />
+            <Link to="/forgot-password" className="au-link au-forgot">Forgot password?</Link>
           </div>
-          <div className="flex justify-between text-sm">
-            <Link to="/forgot-password" style={{ color: 'var(--green)', fontWeight: 600 }}>Forgot password?</Link>
-            <Link to="/register" style={{ color: 'var(--green)', fontWeight: 600 }}>Become a vendor</Link>
-          </div>
-          <button className="btn btn-primary btn-block btn-lg login-submit" disabled={busy} type="submit">
-            {busy ? <><AppLoader size={20} /> Signing in…</> : <>Sign in <ArrowRight size={16} /></>}
+          <button className="au-btn" disabled={busy} type="submit">
+            {busy ? <><AppLoader size={18} /> Signing in…</> : <>Let&rsquo;s go <ArrowRight size={16} /></>}
           </button>
         </form>
       ) : (
-        <form onSubmit={onCustomerSubmit} className="col" style={{ gap: 16 }}>
-          <div className="field">
-            <label className="label" htmlFor="login-phone">Phone number</label>
-            <div className="input-icon">
-              <input id="login-phone" className="input" inputMode="tel" autoComplete="tel" disabled={otpSent} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0712 345 678" />
-              <Phone size={16} />
-            </div>
+        <form onSubmit={onCustomerSubmit} className="au-form">
+          <div className="au-field">
+            <label htmlFor="login-phone">Phone number</label>
+            <input id="login-phone" className="au-input" inputMode="tel" autoComplete="tel" disabled={otpSent} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 0712 345 678" />
           </div>
           {otpSent && (
-            <div className="field">
-              <label className="label" htmlFor="login-otp">6-digit code</label>
-              <div className="input-icon">
-                <input id="login-otp" className="input mono" inputMode="numeric" autoComplete="one-time-code" maxLength={6} autoFocus value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} placeholder="123456" />
-                <KeyRound size={16} />
+            <div className="au-field">
+              <div className="au-label-row">
+                <label htmlFor="login-otp">6-digit code</label>
+                <button type="button" className="au-show" onClick={() => { setOtpSent(false); setOtp(''); }}>Change number</button>
               </div>
-              <button type="button" className="text-sm" style={{ color: 'var(--green)', fontWeight: 600, textAlign: 'left' }} onClick={() => { setOtpSent(false); setOtp(''); }}>
-                Use a different number
-              </button>
+              <input id="login-otp" className="au-input mono" inputMode="numeric" autoComplete="one-time-code" maxLength={6} autoFocus value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} placeholder="123456" />
             </div>
           )}
-          <button className="btn btn-primary btn-block btn-lg login-submit" disabled={busy} type="submit">
-            {busy ? <AppLoader size={20} /> : otpSent ? <>Verify &amp; sign in <ArrowRight size={16} /></> : <>Send code <ArrowRight size={16} /></>}
+          <button className="au-btn" disabled={busy} type="submit">
+            {busy ? <AppLoader size={18} /> : otpSent ? <>Verify &amp; sign in <ArrowRight size={16} /></> : <>Send code <ArrowRight size={16} /></>}
           </button>
-          {mode === 'customer' && <a className="btn btn-ghost btn-block" href={googleSignInUrl()}>Continue with Google</a>}
+          {mode === 'customer' && <a className="au-btn ghost" href={googleSignInUrl()}>Continue with Google</a>}
         </form>
       )}
     </AuthCard>

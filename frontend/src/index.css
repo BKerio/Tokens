@@ -2426,3 +2426,54 @@ h1, h2 { font-family: var(--font-display); }
   .mp-context-right { text-align: left; }
 }
 @media (prefers-reduced-motion: reduce) { .mp-ring.mp-spinning::after, .mp-pulse, .mp-spinner { animation: none; } }
+
+/* ── Auth screens (au-*): soft card on a quiet page ─────────────────────── */
+.au-page { min-height: 100vh; display: flex; flex-direction: column; background: color-mix(in srgb, var(--green) 5%, var(--bg)); }
+.au-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; max-width: 1080px; margin: 0 auto; padding: 22px 24px; }
+.au-top > a { display: inline-flex; }
+.au-top nav { display: flex; align-items: center; gap: 28px; }
+.au-top nav a { font-size: 14.5px; font-weight: 500; color: var(--ink); text-decoration: none; transition: color .15s; }
+.au-top nav a:hover { color: var(--green); }
+.au-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; padding: 24px 16px 48px; }
+.au-card { width: 100%; max-width: 380px; padding: 40px 36px 36px; border-radius: 28px; background: color-mix(in srgb, var(--green) 3%, var(--surface)); border: 1px solid color-mix(in srgb, var(--surface) 70%, transparent);
+  box-shadow: -18px -18px 44px rgba(255, 255, 255, .85), 22px 26px 50px color-mix(in srgb, var(--green) 14%, transparent), 0 2px 6px rgba(16, 33, 26, .04); }
+.au-title { margin: 0; font-family: var(--font-display); font-size: 27px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); }
+.au-sub { margin: 6px 0 22px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.au-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin: 0 0 18px; padding: 4px; border-radius: 14px; background: color-mix(in srgb, var(--green) 7%, var(--surface-3)); }
+.au-seg button { padding: 8px 4px; border: 0; border-radius: 10px; background: transparent; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; transition: all .15s; }
+.au-seg button:hover { color: var(--ink); }
+.au-seg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 2px 6px rgba(16, 33, 26, .08); }
+.au-form { display: flex; flex-direction: column; gap: 20px; }
+.au-field { display: flex; flex-direction: column; gap: 8px; }
+.au-field label { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.au-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.au-show { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 500; color: var(--ink-2); cursor: pointer; }
+.au-show:hover { color: var(--green); }
+.au-input { width: 100%; height: 46px; padding: 0 14px; border: 1px solid transparent; border-radius: 6px; background: var(--surface); font: inherit; font-size: 14px; color: var(--ink); outline: none; box-shadow: inset 0 1px 2px rgba(16, 33, 26, .04); transition: border-color .15s, box-shadow .15s; }
+.au-input::placeholder { color: var(--muted-2); }
+.au-input:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--ring); }
+.au-input:disabled { opacity: .7; }
+.au-link { font-size: 12.5px; font-weight: 600; color: var(--green); text-decoration: none; }
+.au-link:hover { text-decoration: underline; }
+.au-forgot { align-self: flex-end; }
+.au-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 52px; margin-top: 4px; border: 0; border-radius: 99px; background: var(--green); color: #fff; font: inherit; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; box-shadow: 0 10px 22px color-mix(in srgb, var(--green) 26%, transparent); transition: background .15s, transform .1s; }
+.au-btn:hover { background: var(--green-dark); }
+.au-btn:active:not(:disabled) { transform: scale(.98); }
+.au-btn:disabled { opacity: .75; cursor: progress; }
+.au-btn.ghost { margin-top: -8px; background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong); box-shadow: none; }
+.au-btn.ghost:hover { background: var(--surface-2); }
+.au-note { max-width: 280px; margin: 0; text-align: center; font-size: 13px; line-height: 1.6; color: var(--muted); }
+.au-note a { font-weight: 600; color: var(--ink); text-decoration: none; }
+.au-note a:hover { color: var(--green); }
+.au-card .alert-error { margin-top: 4px; }
+@media (max-width: 520px) {
+  .au-top { padding: 16px; }
+  .au-top nav { gap: 16px; }
+  .au-top nav a:first-child { display: none; }
+  .au-card { padding: 32px 22px 28px; border-radius: 24px; }
+}
+/* Older auth forms (forgot password) inside the new card */
+.au-card .label { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.au-card .input { height: 46px; border-color: transparent; border-radius: 6px; background: var(--surface); }
+.au-card .input:focus { border-color: var(--green); }
+.au-card .btn-primary { height: 52px; border-radius: 99px; }
