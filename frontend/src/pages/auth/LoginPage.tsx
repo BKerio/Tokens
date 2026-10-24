@@ -153,7 +153,7 @@ function LoginPage() {
           </div>
           <div className="au-field">
             <div className="au-label-row">
-              <label htmlFor="login-password">Password</label>
+              <label htmlFor="login-password">Enter your password</label>
               <button type="button" className="au-show" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
                 {showPassword ? <EyeOff size={14} /> : <Eye size={14} />} {showPassword ? 'Hide' : 'Show'}
               </button>
