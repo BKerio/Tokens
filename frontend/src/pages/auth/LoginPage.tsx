@@ -33,7 +33,7 @@ export function AuthCard({ title, subtitle, children, footer }: { title: string;
           {children}
         </div>
         <p className="au-note">
-          {footer ?? <>You acknowledge that you read, and agree to our <Link to="/terms">Terms of Service</Link> and our <Link to="/privacy">Privacy Policy</Link>.</>}
+          {footer ?? <>You acknowledge that you read, and agree to our <Link to="/terms">Terms of Service</Link> and our <Link to="/privacy">Privacy Policies</Link>.</>}
         </p>
       </main>
     </div>
